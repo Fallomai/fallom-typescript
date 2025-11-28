@@ -14,11 +14,13 @@ npm install @fallom/trace @traceloop/node-server-sdk
 ## Quick Start
 
 ```typescript
+// ⚠️ IMPORTANT: Import and initialize Fallom BEFORE importing OpenAI!
 import fallom from '@fallom/trace';
-import OpenAI from 'openai';
 
-// Initialize FIRST - before importing your LLM libraries
 fallom.init({ apiKey: 'your-api-key' });
+
+// NOW import OpenAI (after instrumentation is set up)
+const { default: OpenAI } = await import('openai');
 
 // Set default session context for tracing
 fallom.trace.setSession('my-agent', sessionId);
@@ -30,6 +32,8 @@ const response = await openai.chat.completions.create({
   messages: [{ role: 'user', content: 'Hello!' }],
 });
 ```
+
+> ⚠️ **Import Order Matters!** Auto-instrumentation hooks into libraries when they're imported. You must call `fallom.init()` BEFORE importing `openai`, `@anthropic-ai/sdk`, etc. Use dynamic imports (`await import('openai')`) to ensure correct order.
 
 ## Model A/B Testing
 
@@ -99,15 +103,18 @@ Auto-capture all LLM calls with OpenTelemetry instrumentation.
 ### Automatic Tracing
 
 ```typescript
+// Step 1: Import and init Fallom FIRST
 import fallom from '@fallom/trace';
-
-// Initialize before making LLM calls
 fallom.init();
 
-// Set session context
+// Step 2: Dynamic import OpenAI AFTER init
+const { default: OpenAI } = await import('openai');
+const openai = new OpenAI();
+
+// Step 3: Set session context
 fallom.trace.setSession('my-agent', sessionId);
 
-// All LLM calls automatically traced with:
+// Step 4: Make LLM calls - automatically traced with:
 // - Model, tokens, latency
 // - Prompts and completions
 // - Your config_key and session_id
@@ -116,6 +123,11 @@ const response = await openai.chat.completions.create({
   messages: [...],
 });
 ```
+
+> **Required dependency:** Install `@traceloop/node-server-sdk` for auto-instrumentation:
+> ```bash
+> npm install @traceloop/node-server-sdk
+> ```
 
 ### Async Context Propagation
 
@@ -268,6 +280,8 @@ See the `../examples/` folder for complete examples:
 ## Requirements
 
 - Node.js >= 18.0.0
+
+> ⚠️ **Bun Compatibility:** Auto-tracing uses OpenTelemetry instrumentation which relies on Node.js module hooks. **Bun has limited support** for this. For full tracing functionality, use Node.js. A/B testing (`models.get()`) works fine in Bun.
 
 ## License
 

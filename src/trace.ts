@@ -37,7 +37,6 @@ let sdk: NodeSDK | null = null;
  */
 const fallomSpanProcessor = {
   onStart(span: { setAttribute: (key: string, value: string) => void }, _parentContext: Context): void {
-    // Check AsyncLocalStorage first, then fall back to module-level session
     const ctx = sessionStorage.getStore() || fallbackSession;
     if (ctx) {
       span.setAttribute('fallom.config_key', ctx.configKey);
@@ -143,18 +142,21 @@ function autoInstrument(): void {
   try {
     // Try to use Traceloop's SDK for comprehensive LLM instrumentation
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { Traceloop } = require('@traceloop/node-server-sdk');
+    const traceloopModule = require('@traceloop/node-server-sdk');
+    const Traceloop = traceloopModule.Traceloop || traceloopModule.default?.Traceloop || traceloopModule;
+    
+    if (!Traceloop?.initialize) {
+      return;
+    }
     
     Traceloop.initialize({
-      baseUrl: `${baseUrl}/v1/traces`,
+      baseUrl: baseUrl,
       apiKey: apiKey!,
-      disableBatch: false,
-      // Respect capture content setting
+      disableBatch: true,
       traceContent: captureContent,
     });
   } catch {
-    // Traceloop not installed - that's fine, basic OTEL still works
-    // Users can install @traceloop/node-server-sdk for full LLM instrumentation
+    // Traceloop not installed - basic OTEL still works
   }
 }
 
