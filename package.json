@@ -1,6 +1,6 @@
 {
   "name": "@fallom/trace",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Model A/B testing and tracing for LLM applications. Zero latency, production-ready.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -57,4 +57,3 @@
     "node": ">=18.0.0"
   }
 }
-
