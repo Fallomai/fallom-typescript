@@ -9,6 +9,7 @@ export interface InitOptions {
   apiKey?: string;
   baseUrl?: string;
   captureContent?: boolean;
+  debug?: boolean;
 }
 
 /**
@@ -33,16 +34,17 @@ export interface InitOptions {
  * fallom.init({ captureContent: false });
  * ```
  */
-export function init(options: InitOptions = {}): void {
+export async function init(options: InitOptions = {}): Promise<void> {
   const baseUrl =
     options.baseUrl ||
     process.env.FALLOM_BASE_URL ||
     "https://spans.fallom.com";
 
-  trace.init({
+  await trace.init({
     apiKey: options.apiKey,
     baseUrl,
     captureContent: options.captureContent,
+    debug: options.debug,
   });
 
   models.init({

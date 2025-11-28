@@ -6,162 +6,141 @@ Model A/B testing and tracing for LLM applications. Zero latency, production-rea
 
 ```bash
 npm install @fallom/trace
-
-# With auto-instrumentation for your LLM provider:
-npm install @fallom/trace @traceloop/node-server-sdk
 ```
 
 ## Quick Start
 
 ```typescript
-// ⚠️ IMPORTANT: Import and initialize Fallom BEFORE importing OpenAI!
-import fallom from '@fallom/trace';
+import fallom from "@fallom/trace";
+import OpenAI from "openai";
 
-fallom.init({ apiKey: 'your-api-key' });
+// Initialize Fallom
+await fallom.init({ apiKey: "your-api-key" });
 
-// NOW import OpenAI (after instrumentation is set up)
-const { default: OpenAI } = await import('openai');
+// Wrap your LLM client for automatic tracing
+const openai = fallom.trace.wrapOpenAI(new OpenAI());
 
-// Set default session context for tracing
-fallom.trace.setSession('my-agent', sessionId);
+// Set session context
+fallom.trace.setSession("my-agent", sessionId);
 
 // All LLM calls are now automatically traced!
-const openai = new OpenAI();
 const response = await openai.chat.completions.create({
-  model: 'gpt-4o',
-  messages: [{ role: 'user', content: 'Hello!' }],
+  model: "gpt-4o",
+  messages: [{ role: "user", content: "Hello!" }],
 });
 ```
-
-> ⚠️ **Import Order Matters!** Auto-instrumentation hooks into libraries when they're imported. You must call `fallom.init()` BEFORE importing `openai`, `@anthropic-ai/sdk`, etc. Use dynamic imports (`await import('openai')`) to ensure correct order.
 
 ## Model A/B Testing
 
 Run A/B tests on models with zero latency. Same session always gets same model (sticky assignment).
 
 ```typescript
-import { models } from '@fallom/trace';
+import { models } from "@fallom/trace";
 
 // Get assigned model for this session
-const model = await models.get('summarizer-config', sessionId);
+const model = await models.get("summarizer-config", sessionId);
 // Returns: "gpt-4o" or "claude-3-5-sonnet" based on your config weights
 
-const agent = new Agent({ model });
-await agent.run(message);
-```
-
-### Version Pinning
-
-Pin to a specific config version, or use latest (default):
-
-```typescript
-// Use latest version (default)
-const model = await models.get('my-config', sessionId);
-
-// Pin to specific version
-const model = await models.get('my-config', sessionId, { version: 2 });
+const response = await openai.chat.completions.create({ model, ... });
 ```
 
 ### Fallback for Resilience
 
-Always provide a fallback so your app works even if Fallom is down:
-
 ```typescript
-const model = await models.get('my-config', sessionId, {
-  fallback: 'gpt-4o-mini', // Used if config not found or Fallom unreachable
+const model = await models.get("my-config", sessionId, {
+  fallback: "gpt-4o-mini", // Used if config not found or Fallom unreachable
 });
 ```
-
-**Resilience guarantees:**
-- Short timeouts (1-2 seconds max)
-- Background config sync (never blocks your requests)
-- Graceful degradation (returns fallback on any error)
-- Your app is never impacted by Fallom being down
 
 ## Tracing
 
-Auto-capture all LLM calls with OpenTelemetry instrumentation.
+Wrap your LLM client once, all calls are automatically traced.
 
-> ⚠️ **Important:** Auto-tracing only works with supported LLM SDKs (OpenAI, Anthropic, etc.) - not raw HTTP requests. If you're using an OpenAI-compatible API like OpenRouter, LiteLLM, or a self-hosted model, use the OpenAI SDK with a custom `baseURL`:
->
-> ```typescript
-> import OpenAI from 'openai';
-> 
-> // OpenRouter, LiteLLM, vLLM, etc.
-> const client = new OpenAI({
->   baseURL: 'https://openrouter.ai/api/v1', // or your provider's URL
->   apiKey: 'your-provider-key',
-> });
-> 
-> // Now this call will be auto-traced!
-> const response = await client.chat.completions.create({
->   model: 'gpt-4o',
->   messages: [...],
-> });
-> ```
-
-### Automatic Tracing
+### OpenAI (+ OpenRouter, Azure, LiteLLM, etc.)
 
 ```typescript
-// Step 1: Import and init Fallom FIRST
-import fallom from '@fallom/trace';
-fallom.init();
+import OpenAI from "openai";
+import fallom from "@fallom/trace";
 
-// Step 2: Dynamic import OpenAI AFTER init
-const { default: OpenAI } = await import('openai');
-const openai = new OpenAI();
+await fallom.init({ apiKey: "your-api-key" });
 
-// Step 3: Set session context
-fallom.trace.setSession('my-agent', sessionId);
+// Works with any OpenAI-compatible API
+const openai = fallom.trace.wrapOpenAI(
+  new OpenAI({
+    baseURL: "https://openrouter.ai/api/v1", // or Azure, LiteLLM, etc.
+    apiKey: "your-provider-key",
+  })
+);
 
-// Step 4: Make LLM calls - automatically traced with:
-// - Model, tokens, latency
-// - Prompts and completions
-// - Your config_key and session_id
+fallom.trace.setSession("my-config", sessionId);
+
+// Automatically traced!
 const response = await openai.chat.completions.create({
-  model: 'gpt-4o',
-  messages: [...],
+  model: "gpt-4o",
+  messages: [{ role: "user", content: "Hello!" }],
 });
 ```
 
-> **Required dependency:** Install `@traceloop/node-server-sdk` for auto-instrumentation:
-> ```bash
-> npm install @traceloop/node-server-sdk
-> ```
-
-### Async Context Propagation
-
-For proper session context across async boundaries, use `runWithSession`:
+### Anthropic (Claude)
 
 ```typescript
-import { trace } from '@fallom/trace';
+import Anthropic from "@anthropic-ai/sdk";
+import fallom from "@fallom/trace";
 
-await trace.runWithSession('my-agent', sessionId, async () => {
-  // All LLM calls in here have session context
-  await agent.run(message);
-  await anotherAsyncOperation();
+await fallom.init({ apiKey: "your-api-key" });
+
+const anthropic = fallom.trace.wrapAnthropic(new Anthropic());
+
+fallom.trace.setSession("my-config", sessionId);
+
+// Automatically traced!
+const response = await anthropic.messages.create({
+  model: "claude-3-5-sonnet-20241022",
+  messages: [{ role: "user", content: "Hello!" }],
 });
 ```
 
-### Custom Metrics
-
-Record business metrics that OTEL can't capture automatically:
+### Google AI (Gemini)
 
 ```typescript
-import { trace } from '@fallom/trace';
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import fallom from "@fallom/trace";
 
-// Record custom metrics for this session
+await fallom.init({ apiKey: "your-api-key" });
+
+const genAI = new GoogleGenerativeAI(apiKey);
+const model = fallom.trace.wrapGoogleAI(
+  genAI.getGenerativeModel({ model: "gemini-pro" })
+);
+
+fallom.trace.setSession("my-config", sessionId);
+
+// Automatically traced!
+const response = await model.generateContent("Hello!");
+```
+
+## What Gets Traced
+
+For each LLM call, Fallom automatically captures:
+- ✅ Model name
+- ✅ Duration (latency)
+- ✅ Token counts (prompt, completion, total)
+- ✅ Input/output content (can be disabled)
+- ✅ Errors
+- ✅ Config key + session ID (for A/B analysis)
+
+## Custom Metrics
+
+Record business metrics for your A/B tests:
+
+```typescript
+import { trace } from "@fallom/trace";
+
 trace.span({
   outlier_score: 0.8,
   user_satisfaction: 4,
   conversion: true,
 });
-
-// Or explicitly specify session (for batch jobs)
-trace.span(
-  { outlier_score: 0.8 },
-  { configKey: 'my-agent', sessionId: 'user123-convo456' }
-);
 ```
 
 ## Configuration
@@ -170,120 +149,54 @@ trace.span(
 
 ```bash
 FALLOM_API_KEY=your-api-key
-FALLOM_BASE_URL=https://spans.fallom.com  # or http://localhost:8001 for local dev
+FALLOM_BASE_URL=https://spans.fallom.com
 FALLOM_CAPTURE_CONTENT=true  # set to "false" for privacy mode
-```
-
-### Initialization Options
-
-```typescript
-fallom.init({
-  apiKey: 'your-api-key',           // Or use FALLOM_API_KEY env var
-  baseUrl: 'https://spans.fallom.com', // Or use FALLOM_BASE_URL env var
-  captureContent: true,              // Set false for privacy mode
-});
 ```
 
 ### Privacy Mode
 
-For companies with strict data policies, disable prompt/completion capture:
+Disable prompt/completion capture:
 
 ```typescript
-// Via parameter
 fallom.init({ captureContent: false });
-
-// Or via environment variable
-// FALLOM_CAPTURE_CONTENT=false
 ```
-
-In privacy mode, Fallom still tracks:
-- ✅ Model used
-- ✅ Token counts
-- ✅ Latency
-- ✅ Session/config context
-- ❌ Prompt content (not captured)
-- ❌ Completion content (not captured)
 
 ## API Reference
 
 ### `fallom.init(options?)`
 
-Initialize the SDK. Call this before making LLM calls for auto-instrumentation.
+Initialize the SDK.
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `apiKey` | `string` | `FALLOM_API_KEY` env | Your Fallom API key |
-| `baseUrl` | `string` | `https://spans.fallom.com` | API base URL |
-| `captureContent` | `boolean` | `true` | Capture prompt/completion text |
+### `fallom.trace.wrapOpenAI(client)`
 
-### `fallom.models.get(configKey, sessionId, options?)`
+Wrap OpenAI client for automatic tracing. Works with any OpenAI-compatible API.
 
-Get model assignment for a session.
+### `fallom.trace.wrapAnthropic(client)`
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `configKey` | `string` | Your config name from the dashboard |
-| `sessionId` | `string` | Unique session/conversation ID (sticky assignment) |
-| `options.version` | `number` | Pin to specific version (default: latest) |
-| `options.fallback` | `string` | Model to return if anything fails |
-| `options.debug` | `boolean` | Enable debug logging |
+Wrap Anthropic client for automatic tracing.
 
-Returns: `Promise<string>` - The assigned model name
+### `fallom.trace.wrapGoogleAI(model)`
+
+Wrap Google AI model for automatic tracing.
 
 ### `fallom.trace.setSession(configKey, sessionId)`
 
-Set trace context. All subsequent LLM calls will be tagged with this session.
+Set session context for tracing.
 
-### `fallom.trace.runWithSession(configKey, sessionId, fn)`
+### `fallom.models.get(configKey, sessionId, options?)`
 
-Run a function with session context that propagates across async boundaries.
+Get model assignment for A/B testing. Returns `Promise<string>`.
 
-### `fallom.trace.clearSession()`
-
-Clear trace context.
-
-### `fallom.trace.span(data, options?)`
+### `fallom.trace.span(data)`
 
 Record custom business metrics.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `data` | `Record<string, unknown>` | Metrics to record |
-| `options.configKey` | `string` | Optional if `setSession()` was called |
-| `options.sessionId` | `string` | Optional if `setSession()` was called |
-
-### `fallom.trace.shutdown()`
-
-Gracefully shutdown the tracing SDK. Call this on process exit.
-
-## Supported LLM Providers
-
-Auto-instrumentation available for:
-- OpenAI (+ OpenAI-compatible APIs: OpenRouter, LiteLLM, vLLM, Ollama, etc.)
-- Anthropic
-- Cohere
-- AWS Bedrock
-- Google Generative AI
-- Azure OpenAI
-- LangChain
-- And more via Traceloop
-
-Install `@traceloop/node-server-sdk` for comprehensive LLM instrumentation.
-
-**Note:** You must use the official SDK for your provider. Raw HTTP requests (e.g., `fetch()`) will not be traced. For OpenAI-compatible APIs, use the OpenAI SDK with a custom `baseURL`.
-
-## Examples
-
-See the `../examples/` folder for complete examples:
-- `random-fact/` - Simple A/B testing with Hono server
 
 ## Requirements
 
 - Node.js >= 18.0.0
 
-> ⚠️ **Bun Compatibility:** Auto-tracing uses OpenTelemetry instrumentation which relies on Node.js module hooks. **Bun has limited support** for this. For full tracing functionality, use Node.js. A/B testing (`models.get()`) works fine in Bun.
+Works with ESM and CommonJS. Works with tsx, ts-node, Bun, and compiled JavaScript.
 
 ## License
 
 MIT
-
