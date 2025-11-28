@@ -1,20 +1,20 @@
-# Fallom SDK (TypeScript)
+# @fallom/trace
 
 Model A/B testing and tracing for LLM applications. Zero latency, production-ready.
 
 ## Installation
 
 ```bash
-npm install fallom
+npm install @fallom/trace
 
 # With auto-instrumentation for your LLM provider:
-npm install fallom @traceloop/node-server-sdk
+npm install @fallom/trace @traceloop/node-server-sdk
 ```
 
 ## Quick Start
 
 ```typescript
-import fallom from 'fallom';
+import fallom from '@fallom/trace';
 import OpenAI from 'openai';
 
 // Initialize FIRST - before importing your LLM libraries
@@ -36,7 +36,7 @@ const response = await openai.chat.completions.create({
 Run A/B tests on models with zero latency. Same session always gets same model (sticky assignment).
 
 ```typescript
-import { models } from 'fallom';
+import { models } from '@fallom/trace';
 
 // Get assigned model for this session
 const model = await models.get('summarizer-config', sessionId);
@@ -99,7 +99,7 @@ Auto-capture all LLM calls with OpenTelemetry instrumentation.
 ### Automatic Tracing
 
 ```typescript
-import fallom from 'fallom';
+import fallom from '@fallom/trace';
 
 // Initialize before making LLM calls
 fallom.init();
@@ -122,7 +122,7 @@ const response = await openai.chat.completions.create({
 For proper session context across async boundaries, use `runWithSession`:
 
 ```typescript
-import { trace } from 'fallom';
+import { trace } from '@fallom/trace';
 
 await trace.runWithSession('my-agent', sessionId, async () => {
   // All LLM calls in here have session context
@@ -136,7 +136,7 @@ await trace.runWithSession('my-agent', sessionId, async () => {
 Record business metrics that OTEL can't capture automatically:
 
 ```typescript
-import { trace } from 'fallom';
+import { trace } from '@fallom/trace';
 
 // Record custom metrics for this session
 trace.span({

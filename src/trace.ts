@@ -9,11 +9,7 @@ import { AsyncLocalStorage } from 'async_hooks';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { Resource } from '@opentelemetry/resources';
-import {
-  SpanProcessor,
-  ReadableSpan,
-  Span,
-} from '@opentelemetry/sdk-trace-node';
+import { ReadableSpan } from '@opentelemetry/sdk-trace-node';
 import { Context } from '@opentelemetry/api';
 
 // Session context using AsyncLocalStorage (Node.js equivalent of Python's contextvars)
@@ -39,28 +35,28 @@ let sdk: NodeSDK | null = null;
  * Custom SpanProcessor that injects fallom session context into every span.
  * This ensures all auto-instrumented LLM calls get our config_key and session_id.
  */
-class FallomSpanProcessor implements SpanProcessor {
-  onStart(span: Span, _parentContext: Context): void {
+const fallomSpanProcessor = {
+  onStart(span: { setAttribute: (key: string, value: string) => void }, _parentContext: Context): void {
     // Check AsyncLocalStorage first, then fall back to module-level session
     const ctx = sessionStorage.getStore() || fallbackSession;
     if (ctx) {
       span.setAttribute('fallom.config_key', ctx.configKey);
       span.setAttribute('fallom.session_id', ctx.sessionId);
     }
-  }
+  },
 
   onEnd(_span: ReadableSpan): void {
     // Nothing to do
-  }
+  },
 
   shutdown(): Promise<void> {
     return Promise.resolve();
-  }
+  },
 
   forceFlush(): Promise<void> {
     return Promise.resolve();
-  }
-}
+  },
+};
 
 /**
  * Initialize Fallom tracing. Auto-instruments all LLM calls.
@@ -126,7 +122,7 @@ export function init(options: {
       'service.name': 'fallom-traced-app',
     }),
     traceExporter: exporter,
-    spanProcessors: [new FallomSpanProcessor()],
+    spanProcessor: fallomSpanProcessor,
   });
 
   sdk.start();
