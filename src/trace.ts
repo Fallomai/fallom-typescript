@@ -104,7 +104,7 @@ export async function init(
   if (initialized) return;
 
   debugMode = options.debug ?? false;
-  
+
   log("🚀 Initializing Fallom tracing...");
 
   apiKey = options.apiKey || process.env.FALLOM_API_KEY || null;
@@ -171,41 +171,78 @@ export async function init(
 async function getInstrumentations(): Promise<any[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const instrumentations: any[] = [];
-  
+
   // OpenAI (also covers OpenRouter, LiteLLM, Azure OpenAI via OpenAI SDK)
-  await tryAddInstrumentation(instrumentations, "@traceloop/instrumentation-openai", "OpenAIInstrumentation");
-  
+  await tryAddInstrumentation(
+    instrumentations,
+    "@traceloop/instrumentation-openai",
+    "OpenAIInstrumentation"
+  );
+
   // Anthropic
-  await tryAddInstrumentation(instrumentations, "@traceloop/instrumentation-anthropic", "AnthropicInstrumentation");
-  
+  await tryAddInstrumentation(
+    instrumentations,
+    "@traceloop/instrumentation-anthropic",
+    "AnthropicInstrumentation"
+  );
+
   // Cohere
-  await tryAddInstrumentation(instrumentations, "@traceloop/instrumentation-cohere", "CohereInstrumentation");
-  
+  await tryAddInstrumentation(
+    instrumentations,
+    "@traceloop/instrumentation-cohere",
+    "CohereInstrumentation"
+  );
+
   // AWS Bedrock
-  await tryAddInstrumentation(instrumentations, "@traceloop/instrumentation-bedrock", "BedrockInstrumentation");
-  
+  await tryAddInstrumentation(
+    instrumentations,
+    "@traceloop/instrumentation-bedrock",
+    "BedrockInstrumentation"
+  );
+
   // Google AI (Gemini)
-  await tryAddInstrumentation(instrumentations, "@traceloop/instrumentation-google-generativeai", "GoogleGenerativeAIInstrumentation");
-  
+  await tryAddInstrumentation(
+    instrumentations,
+    "@traceloop/instrumentation-google-generativeai",
+    "GoogleGenerativeAIInstrumentation"
+  );
+
   // Azure OpenAI
-  await tryAddInstrumentation(instrumentations, "@traceloop/instrumentation-azure", "AzureOpenAIInstrumentation");
-  
+  await tryAddInstrumentation(
+    instrumentations,
+    "@traceloop/instrumentation-azure",
+    "AzureOpenAIInstrumentation"
+  );
+
   // Vertex AI
-  await tryAddInstrumentation(instrumentations, "@traceloop/instrumentation-vertexai", "VertexAIInstrumentation");
-  
+  await tryAddInstrumentation(
+    instrumentations,
+    "@traceloop/instrumentation-vertexai",
+    "VertexAIInstrumentation"
+  );
+
   return instrumentations;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function tryAddInstrumentation(instrumentations: any[], pkg: string, className: string): Promise<void> {
+async function tryAddInstrumentation(
+  instrumentations: any[],
+  pkg: string,
+  className: string
+): Promise<void> {
   try {
     const mod = await import(pkg);
     const InstrumentationClass = mod[className] || mod.default?.[className];
     if (InstrumentationClass) {
-      instrumentations.push(new InstrumentationClass({ traceContent: captureContent }));
+      instrumentations.push(
+        new InstrumentationClass({ traceContent: captureContent })
+      );
       log(`   ✅ Loaded ${pkg}`);
     } else {
-      log(`   ⚠️ ${pkg} loaded but ${className} not found. Available:`, Object.keys(mod));
+      log(
+        `   ⚠️ ${pkg} loaded but ${className} not found. Available:`,
+        Object.keys(mod)
+      );
     }
   } catch (e: any) {
     log(`   ❌ ${pkg} not installed`);
@@ -389,6 +426,11 @@ interface TraceData {
   total_tokens?: number;
   input?: string;
   output?: string;
+  // Prompt context fields
+  prompt_key?: string;
+  prompt_version?: number;
+  prompt_ab_test_key?: string;
+  prompt_variant_index?: number;
 }
 
 async function sendTrace(trace: TraceData): Promise<void> {
@@ -431,15 +473,33 @@ async function sendTrace(trace: TraceData): Promise<void> {
  * const response = await openai.chat.completions.create({...}); // Automatically traced!
  * ```
  */
-export function wrapOpenAI<T extends { chat: { completions: { create: (...args: any[]) => Promise<any> } } }>(
-  client: T
-): T {
-  const originalCreate = client.chat.completions.create.bind(client.chat.completions);
+export function wrapOpenAI<
+  T extends {
+    chat: { completions: { create: (...args: any[]) => Promise<any> } };
+  }
+>(client: T): T {
+  const originalCreate = client.chat.completions.create.bind(
+    client.chat.completions
+  );
 
   client.chat.completions.create = async function (...args: any[]) {
     const ctx = sessionStorage.getStore() || fallbackSession;
     if (!ctx || !initialized) {
       return originalCreate(...args);
+    }
+
+    // Get prompt context (one-shot - clears after read)
+    let promptCtx: {
+      promptKey: string;
+      promptVersion: number;
+      abTestKey?: string;
+      variantIndex?: number;
+    } | null = null;
+    try {
+      const { getPromptContext } = await import("./prompts");
+      promptCtx = getPromptContext();
+    } catch {
+      // prompts module not available
     }
 
     const params = args[0] || {};
@@ -462,7 +522,13 @@ export function wrapOpenAI<T extends { chat: { completions: { create: (...args: 
         completion_tokens: response?.usage?.completion_tokens,
         total_tokens: response?.usage?.total_tokens,
         input: captureContent ? JSON.stringify(params?.messages) : undefined,
-        output: captureContent ? response?.choices?.[0]?.message?.content : undefined,
+        output: captureContent
+          ? response?.choices?.[0]?.message?.content
+          : undefined,
+        prompt_key: promptCtx?.promptKey,
+        prompt_version: promptCtx?.promptVersion,
+        prompt_ab_test_key: promptCtx?.abTestKey,
+        prompt_variant_index: promptCtx?.variantIndex,
       }).catch(() => {});
 
       return response;
@@ -479,6 +545,10 @@ export function wrapOpenAI<T extends { chat: { completions: { create: (...args: 
         duration_ms: endTime - startTime,
         status: "ERROR",
         error_message: error?.message,
+        prompt_key: promptCtx?.promptKey,
+        prompt_version: promptCtx?.promptVersion,
+        prompt_ab_test_key: promptCtx?.abTestKey,
+        prompt_variant_index: promptCtx?.variantIndex,
       }).catch(() => {});
 
       throw error;
@@ -505,15 +575,29 @@ export function wrapOpenAI<T extends { chat: { completions: { create: (...args: 
  * const response = await anthropic.messages.create({...}); // Automatically traced!
  * ```
  */
-export function wrapAnthropic<T extends { messages: { create: (...args: any[]) => Promise<any> } }>(
-  client: T
-): T {
+export function wrapAnthropic<
+  T extends { messages: { create: (...args: any[]) => Promise<any> } }
+>(client: T): T {
   const originalCreate = client.messages.create.bind(client.messages);
 
   client.messages.create = async function (...args: any[]) {
     const ctx = sessionStorage.getStore() || fallbackSession;
     if (!ctx || !initialized) {
       return originalCreate(...args);
+    }
+
+    // Get prompt context (one-shot)
+    let promptCtx: {
+      promptKey: string;
+      promptVersion: number;
+      abTestKey?: string;
+      variantIndex?: number;
+    } | null = null;
+    try {
+      const { getPromptContext } = await import("./prompts");
+      promptCtx = getPromptContext();
+    } catch {
+      // prompts module not available
     }
 
     const params = args[0] || {};
@@ -534,9 +618,15 @@ export function wrapAnthropic<T extends { messages: { create: (...args: any[]) =
         status: "OK",
         prompt_tokens: response?.usage?.input_tokens,
         completion_tokens: response?.usage?.output_tokens,
-        total_tokens: (response?.usage?.input_tokens || 0) + (response?.usage?.output_tokens || 0),
+        total_tokens:
+          (response?.usage?.input_tokens || 0) +
+          (response?.usage?.output_tokens || 0),
         input: captureContent ? JSON.stringify(params?.messages) : undefined,
         output: captureContent ? response?.content?.[0]?.text : undefined,
+        prompt_key: promptCtx?.promptKey,
+        prompt_version: promptCtx?.promptVersion,
+        prompt_ab_test_key: promptCtx?.abTestKey,
+        prompt_variant_index: promptCtx?.variantIndex,
       }).catch(() => {});
 
       return response;
@@ -553,6 +643,10 @@ export function wrapAnthropic<T extends { messages: { create: (...args: any[]) =
         duration_ms: endTime - startTime,
         status: "ERROR",
         error_message: error?.message,
+        prompt_key: promptCtx?.promptKey,
+        prompt_version: promptCtx?.promptVersion,
+        prompt_ab_test_key: promptCtx?.abTestKey,
+        prompt_variant_index: promptCtx?.variantIndex,
       }).catch(() => {});
 
       throw error;
@@ -580,15 +674,29 @@ export function wrapAnthropic<T extends { messages: { create: (...args: any[]) =
  * const response = await model.generateContent("Hello!"); // Automatically traced!
  * ```
  */
-export function wrapGoogleAI<T extends { generateContent: (...args: any[]) => Promise<any> }>(
-  model: T
-): T {
+export function wrapGoogleAI<
+  T extends { generateContent: (...args: any[]) => Promise<any> }
+>(model: T): T {
   const originalGenerate = model.generateContent.bind(model);
 
   model.generateContent = async function (...args: any[]) {
     const ctx = sessionStorage.getStore() || fallbackSession;
     if (!ctx || !initialized) {
       return originalGenerate(...args);
+    }
+
+    // Get prompt context (one-shot)
+    let promptCtx: {
+      promptKey: string;
+      promptVersion: number;
+      abTestKey?: string;
+      variantIndex?: number;
+    } | null = null;
+    try {
+      const { getPromptContext } = await import("./prompts");
+      promptCtx = getPromptContext();
+    } catch {
+      // prompts module not available
     }
 
     const startTime = Date.now();
@@ -614,6 +722,10 @@ export function wrapGoogleAI<T extends { generateContent: (...args: any[]) => Pr
         total_tokens: usage?.totalTokenCount,
         input: captureContent ? JSON.stringify(args[0]) : undefined,
         output: captureContent ? result?.text?.() : undefined,
+        prompt_key: promptCtx?.promptKey,
+        prompt_version: promptCtx?.promptVersion,
+        prompt_ab_test_key: promptCtx?.abTestKey,
+        prompt_variant_index: promptCtx?.variantIndex,
       }).catch(() => {});
 
       return response;
@@ -630,6 +742,10 @@ export function wrapGoogleAI<T extends { generateContent: (...args: any[]) => Pr
         duration_ms: endTime - startTime,
         status: "ERROR",
         error_message: error?.message,
+        prompt_key: promptCtx?.promptKey,
+        prompt_version: promptCtx?.promptVersion,
+        prompt_ab_test_key: promptCtx?.abTestKey,
+        prompt_variant_index: promptCtx?.variantIndex,
       }).catch(() => {});
 
       throw error;

@@ -1,9 +1,10 @@
 /**
- * Combined initialization for both trace and models.
+ * Combined initialization for trace, models, and prompts.
  */
 
 import * as trace from "./trace";
 import * as models from "./models";
+import * as prompts from "./prompts";
 
 export interface InitOptions {
   apiKey?: string;
@@ -51,5 +52,9 @@ export async function init(options: InitOptions = {}): Promise<void> {
     apiKey: options.apiKey,
     baseUrl,
   });
-}
 
+  prompts.init({
+    apiKey: options.apiKey,
+    baseUrl,
+  });
+}

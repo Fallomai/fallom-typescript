@@ -1,5 +1,5 @@
 /**
- * Fallom - Model A/B testing and tracing for LLM applications.
+ * Fallom - Model A/B testing, prompt management, and tracing for LLM applications.
  *
  * @example
  * ```typescript
@@ -16,10 +16,18 @@
  *   fallback: "gpt-4o-mini"
  * });
  *
+ * // Get managed prompts (with optional A/B testing)
+ * const prompt = await fallom.prompts.get("onboarding", {
+ *   variables: { userName: "John" }
+ * });
+ *
  * // Use with OpenAI
  * const response = await openai.chat.completions.create({
  *   model,
- *   messages: [...]
+ *   messages: [
+ *     { role: "system", content: prompt.system },
+ *     { role: "user", content: prompt.user }
+ *   ]
  * });
  *
  * // Record custom metrics
@@ -29,16 +37,20 @@
 
 export * as trace from "./trace";
 export * as models from "./models";
+export * as prompts from "./prompts";
 export { init } from "./init";
 export type { InitOptions } from "./init";
+export type { PromptResult } from "./prompts";
 
 // Re-import for default export
 import * as trace from "./trace";
 import * as models from "./models";
+import * as prompts from "./prompts";
 import { init } from "./init";
 
 export default {
   init,
   trace,
   models,
+  prompts,
 };
