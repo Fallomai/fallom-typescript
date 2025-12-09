@@ -439,7 +439,11 @@ interface TraceData {
   config_key: string;
   session_id: string;
   customer_id?: string;
+  trace_id: string;
+  span_id: string;
+  parent_span_id?: string;
   name: string;
+  kind?: string;
   model?: string;
   start_time: string;
   end_time: string;
@@ -449,14 +453,84 @@ interface TraceData {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
-  input?: string;
-  output?: string;
+  // OTEL-format attributes (matches Python SDK)
+  attributes?: Record<string, unknown>;
   // Prompt context fields
   prompt_key?: string;
   prompt_version?: number;
   prompt_ab_test_key?: string;
   prompt_variant_index?: number;
 }
+
+/**
+ * Convert OpenAI-style messages to OTEL GenAI semantic convention attributes.
+ * This ensures TypeScript SDK traces match Python SDK format.
+ */
+function messagesToOtelAttributes(
+  messages:
+    | Array<{ role: string; content: string; tool_calls?: unknown[] }>
+    | undefined,
+  completion:
+    | { role: string; content: string; tool_calls?: unknown[] }
+    | undefined,
+  model: string | undefined,
+  responseId: string | undefined
+): Record<string, unknown> {
+  const attrs: Record<string, unknown> = {};
+
+  // Request model
+  if (model) {
+    attrs["gen_ai.request.model"] = model;
+    attrs["gen_ai.response.model"] = model;
+  }
+
+  // Response ID
+  if (responseId) {
+    attrs["gen_ai.response.id"] = responseId;
+  }
+
+  // Prompts (input messages)
+  if (messages) {
+    messages.forEach((msg, i) => {
+      attrs[`gen_ai.prompt.${i}.role`] = msg.role;
+      attrs[`gen_ai.prompt.${i}.content`] = msg.content;
+    });
+  }
+
+  // Completion (output)
+  if (completion) {
+    attrs["gen_ai.completion.0.role"] = completion.role;
+    attrs["gen_ai.completion.0.content"] = completion.content;
+    if (completion.tool_calls) {
+      attrs["gen_ai.completion.0.tool_calls"] = JSON.stringify(
+        completion.tool_calls
+      );
+    }
+  }
+
+  return attrs;
+}
+
+/**
+ * Generate a random hex string of specified length.
+ * Used for trace_id (32 chars) and span_id (16 chars).
+ */
+function generateHexId(length: number): string {
+  const bytes = new Uint8Array(length / 2);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+// Current trace context for linking spans
+interface TraceContext {
+  traceId: string;
+  parentSpanId?: string;
+}
+
+const traceContextStorage = new AsyncLocalStorage<TraceContext>();
+let fallbackTraceContext: TraceContext | null = null;
 
 async function sendTrace(trace: TraceData): Promise<void> {
   try {
@@ -501,7 +575,7 @@ async function sendTrace(trace: TraceData): Promise<void> {
 export function wrapOpenAI<
   T extends {
     chat: { completions: { create: (...args: any[]) => Promise<any> } };
-  },
+  }
 >(client: T): T {
   const originalCreate = client.chat.completions.create.bind(
     client.chat.completions
@@ -527,6 +601,12 @@ export function wrapOpenAI<
       // prompts module not available
     }
 
+    // Generate trace context (reuse existing trace_id if in a trace, or create new)
+    const traceCtx = traceContextStorage.getStore() || fallbackTraceContext;
+    const traceId = traceCtx?.traceId || generateHexId(32);
+    const spanId = generateHexId(16);
+    const parentSpanId = traceCtx?.parentSpanId;
+
     const params = args[0] || {};
     const startTime = Date.now();
 
@@ -534,11 +614,25 @@ export function wrapOpenAI<
       const response = await originalCreate(...args);
       const endTime = Date.now();
 
+      // Build OTEL-format attributes (matches Python SDK)
+      const attributes = captureContent
+        ? messagesToOtelAttributes(
+            params?.messages,
+            response?.choices?.[0]?.message,
+            response?.model || params?.model,
+            response?.id
+          )
+        : undefined;
+
       sendTrace({
         config_key: ctx.configKey,
         session_id: ctx.sessionId,
         customer_id: ctx.customerId,
+        trace_id: traceId,
+        span_id: spanId,
+        parent_span_id: parentSpanId,
         name: "chat.completions.create",
+        kind: "llm",
         model: response?.model || params?.model,
         start_time: new Date(startTime).toISOString(),
         end_time: new Date(endTime).toISOString(),
@@ -547,10 +641,7 @@ export function wrapOpenAI<
         prompt_tokens: response?.usage?.prompt_tokens,
         completion_tokens: response?.usage?.completion_tokens,
         total_tokens: response?.usage?.total_tokens,
-        input: captureContent ? JSON.stringify(params?.messages) : undefined,
-        output: captureContent
-          ? response?.choices?.[0]?.message?.content
-          : undefined,
+        attributes,
         prompt_key: promptCtx?.promptKey,
         prompt_version: promptCtx?.promptVersion,
         prompt_ab_test_key: promptCtx?.abTestKey,
@@ -561,17 +652,35 @@ export function wrapOpenAI<
     } catch (error: any) {
       const endTime = Date.now();
 
+      // For errors, still capture the input messages
+      const attributes = captureContent
+        ? messagesToOtelAttributes(
+            params?.messages,
+            undefined,
+            params?.model,
+            undefined
+          )
+        : undefined;
+      if (attributes) {
+        attributes["error.message"] = error?.message;
+      }
+
       sendTrace({
         config_key: ctx.configKey,
         session_id: ctx.sessionId,
         customer_id: ctx.customerId,
+        trace_id: traceId,
+        span_id: spanId,
+        parent_span_id: parentSpanId,
         name: "chat.completions.create",
+        kind: "llm",
         model: params?.model,
         start_time: new Date(startTime).toISOString(),
         end_time: new Date(endTime).toISOString(),
         duration_ms: endTime - startTime,
         status: "ERROR",
         error_message: error?.message,
+        attributes,
         prompt_key: promptCtx?.promptKey,
         prompt_version: promptCtx?.promptVersion,
         prompt_ab_test_key: promptCtx?.abTestKey,
@@ -603,7 +712,7 @@ export function wrapOpenAI<
  * ```
  */
 export function wrapAnthropic<
-  T extends { messages: { create: (...args: any[]) => Promise<any> } },
+  T extends { messages: { create: (...args: any[]) => Promise<any> } }
 >(client: T): T {
   const originalCreate = client.messages.create.bind(client.messages);
 
@@ -627,6 +736,12 @@ export function wrapAnthropic<
       // prompts module not available
     }
 
+    // Generate trace context
+    const traceCtx = traceContextStorage.getStore() || fallbackTraceContext;
+    const traceId = traceCtx?.traceId || generateHexId(32);
+    const spanId = generateHexId(16);
+    const parentSpanId = traceCtx?.parentSpanId;
+
     const params = args[0] || {};
     const startTime = Date.now();
 
@@ -634,11 +749,29 @@ export function wrapAnthropic<
       const response = await originalCreate(...args);
       const endTime = Date.now();
 
+      // Build OTEL-format attributes for Anthropic
+      const attributes = captureContent
+        ? messagesToOtelAttributes(
+            params?.messages,
+            { role: "assistant", content: response?.content?.[0]?.text || "" },
+            response?.model || params?.model,
+            response?.id
+          )
+        : undefined;
+      // Add system prompt if present (Anthropic-specific)
+      if (attributes && params?.system) {
+        attributes["gen_ai.system_prompt"] = params.system;
+      }
+
       sendTrace({
         config_key: ctx.configKey,
         session_id: ctx.sessionId,
         customer_id: ctx.customerId,
+        trace_id: traceId,
+        span_id: spanId,
+        parent_span_id: parentSpanId,
         name: "messages.create",
+        kind: "llm",
         model: response?.model || params?.model,
         start_time: new Date(startTime).toISOString(),
         end_time: new Date(endTime).toISOString(),
@@ -649,8 +782,7 @@ export function wrapAnthropic<
         total_tokens:
           (response?.usage?.input_tokens || 0) +
           (response?.usage?.output_tokens || 0),
-        input: captureContent ? JSON.stringify(params?.messages) : undefined,
-        output: captureContent ? response?.content?.[0]?.text : undefined,
+        attributes,
         prompt_key: promptCtx?.promptKey,
         prompt_version: promptCtx?.promptVersion,
         prompt_ab_test_key: promptCtx?.abTestKey,
@@ -661,17 +793,37 @@ export function wrapAnthropic<
     } catch (error: any) {
       const endTime = Date.now();
 
+      const attributes = captureContent
+        ? messagesToOtelAttributes(
+            params?.messages,
+            undefined,
+            params?.model,
+            undefined
+          )
+        : undefined;
+      if (attributes) {
+        attributes["error.message"] = error?.message;
+        if (params?.system) {
+          attributes["gen_ai.system_prompt"] = params.system;
+        }
+      }
+
       sendTrace({
         config_key: ctx.configKey,
         session_id: ctx.sessionId,
         customer_id: ctx.customerId,
+        trace_id: traceId,
+        span_id: spanId,
+        parent_span_id: parentSpanId,
         name: "messages.create",
+        kind: "llm",
         model: params?.model,
         start_time: new Date(startTime).toISOString(),
         end_time: new Date(endTime).toISOString(),
         duration_ms: endTime - startTime,
         status: "ERROR",
         error_message: error?.message,
+        attributes,
         prompt_key: promptCtx?.promptKey,
         prompt_version: promptCtx?.promptVersion,
         prompt_ab_test_key: promptCtx?.abTestKey,
@@ -704,7 +856,7 @@ export function wrapAnthropic<
  * ```
  */
 export function wrapGoogleAI<
-  T extends { generateContent: (...args: any[]) => Promise<any> },
+  T extends { generateContent: (...args: any[]) => Promise<any> }
 >(model: T): T {
   const originalGenerate = model.generateContent.bind(model);
 
@@ -728,6 +880,12 @@ export function wrapGoogleAI<
       // prompts module not available
     }
 
+    // Generate trace context
+    const traceCtx = traceContextStorage.getStore() || fallbackTraceContext;
+    const traceId = traceCtx?.traceId || generateHexId(32);
+    const spanId = generateHexId(16);
+    const parentSpanId = traceCtx?.parentSpanId;
+
     const startTime = Date.now();
 
     try {
@@ -736,13 +894,43 @@ export function wrapGoogleAI<
 
       const result = response?.response;
       const usage = result?.usageMetadata;
+      const modelName = (model as any)?.model || "gemini";
+
+      // Build OTEL-format attributes for Google AI
+      const attributes: Record<string, unknown> = {};
+      if (captureContent) {
+        attributes["gen_ai.request.model"] = modelName;
+        attributes["gen_ai.response.model"] = modelName;
+        // Google AI input can be string or parts array
+        const input = args[0];
+        if (typeof input === "string") {
+          attributes["gen_ai.prompt.0.role"] = "user";
+          attributes["gen_ai.prompt.0.content"] = input;
+        } else if (input?.contents) {
+          input.contents.forEach((content: any, i: number) => {
+            attributes[`gen_ai.prompt.${i}.role`] = content.role || "user";
+            attributes[`gen_ai.prompt.${i}.content`] =
+              content.parts?.[0]?.text || JSON.stringify(content.parts);
+          });
+        }
+        // Output
+        const outputText = result?.text?.();
+        if (outputText) {
+          attributes["gen_ai.completion.0.role"] = "assistant";
+          attributes["gen_ai.completion.0.content"] = outputText;
+        }
+      }
 
       sendTrace({
         config_key: ctx.configKey,
         session_id: ctx.sessionId,
         customer_id: ctx.customerId,
+        trace_id: traceId,
+        span_id: spanId,
+        parent_span_id: parentSpanId,
         name: "generateContent",
-        model: (model as any)?.model || "gemini",
+        kind: "llm",
+        model: modelName,
         start_time: new Date(startTime).toISOString(),
         end_time: new Date(endTime).toISOString(),
         duration_ms: endTime - startTime,
@@ -750,8 +938,7 @@ export function wrapGoogleAI<
         prompt_tokens: usage?.promptTokenCount,
         completion_tokens: usage?.candidatesTokenCount,
         total_tokens: usage?.totalTokenCount,
-        input: captureContent ? JSON.stringify(args[0]) : undefined,
-        output: captureContent ? result?.text?.() : undefined,
+        attributes: captureContent ? attributes : undefined,
         prompt_key: promptCtx?.promptKey,
         prompt_version: promptCtx?.promptVersion,
         prompt_ab_test_key: promptCtx?.abTestKey,
@@ -761,18 +948,35 @@ export function wrapGoogleAI<
       return response;
     } catch (error: any) {
       const endTime = Date.now();
+      const modelName = (model as any)?.model || "gemini";
+
+      const attributes: Record<string, unknown> = {};
+      if (captureContent) {
+        attributes["gen_ai.request.model"] = modelName;
+        attributes["error.message"] = error?.message;
+        const input = args[0];
+        if (typeof input === "string") {
+          attributes["gen_ai.prompt.0.role"] = "user";
+          attributes["gen_ai.prompt.0.content"] = input;
+        }
+      }
 
       sendTrace({
         config_key: ctx.configKey,
         session_id: ctx.sessionId,
         customer_id: ctx.customerId,
+        trace_id: traceId,
+        span_id: spanId,
+        parent_span_id: parentSpanId,
         name: "generateContent",
-        model: (model as any)?.model || "gemini",
+        kind: "llm",
+        model: modelName,
         start_time: new Date(startTime).toISOString(),
         end_time: new Date(endTime).toISOString(),
         duration_ms: endTime - startTime,
         status: "ERROR",
         error_message: error?.message,
+        attributes: captureContent ? attributes : undefined,
         prompt_key: promptCtx?.promptKey,
         prompt_version: promptCtx?.promptVersion,
         prompt_ab_test_key: promptCtx?.abTestKey,
