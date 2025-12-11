@@ -16,7 +16,7 @@ import { createHash } from "crypto";
 
 // Module state
 let apiKey: string | null = null;
-let baseUrl: string = "https://spans.fallom.com";
+let baseUrl: string = "https://prompts.fallom.com";
 let initialized = false;
 let syncInterval: NodeJS.Timeout | null = null;
 let debugMode = false;
@@ -95,8 +95,9 @@ export function init(
   apiKey = options.apiKey || process.env.FALLOM_API_KEY || null;
   baseUrl =
     options.baseUrl ||
+    process.env.FALLOM_PROMPTS_URL ||
     process.env.FALLOM_BASE_URL ||
-    "https://spans.fallom.com";
+    "https://prompts.fallom.com";
   initialized = true;
 
   if (!apiKey) {

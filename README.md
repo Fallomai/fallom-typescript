@@ -226,7 +226,9 @@ trace.span({
 
 ```bash
 FALLOM_API_KEY=your-api-key
-FALLOM_BASE_URL=https://spans.fallom.com
+FALLOM_TRACES_URL=https://traces.fallom.com
+FALLOM_CONFIGS_URL=https://configs.fallom.com
+FALLOM_PROMPTS_URL=https://prompts.fallom.com
 FALLOM_CAPTURE_CONTENT=true  # set to "false" for privacy mode
 ```
 

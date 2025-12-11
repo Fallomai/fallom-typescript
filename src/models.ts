@@ -11,21 +11,24 @@
  * - Background sync keeps configs fresh
  */
 
-import { createHash } from 'crypto';
-import { setSession } from './trace';
+import { createHash } from "crypto";
+import { setSession } from "./trace";
 
 // Module state
 let apiKey: string | null = null;
-let baseUrl: string = 'https://spans.fallom.com';
+let baseUrl: string = "https://configs.fallom.com";
 let initialized = false;
 let syncInterval: NodeJS.Timeout | null = null;
 let debugMode = false;
 
 // Config cache: key -> { versions: { version -> config }, latest: number }
-const configCache: Map<string, {
-  versions: Map<number, Config>;
-  latest: number | null;
-}> = new Map();
+const configCache: Map<
+  string,
+  {
+    versions: Map<number, Config>;
+    latest: number | null;
+  }
+> = new Map();
 
 // Short timeouts - we'd rather return fallback than add latency
 const SYNC_TIMEOUT = 2000; // ms
@@ -54,12 +57,18 @@ function log(msg: string): void {
  * This is optional - get() will auto-init if needed.
  * Non-blocking: starts background config fetch immediately.
  */
-export function init(options: {
-  apiKey?: string;
-  baseUrl?: string;
-} = {}): void {
+export function init(
+  options: {
+    apiKey?: string;
+    baseUrl?: string;
+  } = {}
+): void {
   apiKey = options.apiKey || process.env.FALLOM_API_KEY || null;
-  baseUrl = options.baseUrl || process.env.FALLOM_BASE_URL || 'https://spans.fallom.com';
+  baseUrl =
+    options.baseUrl ||
+    process.env.FALLOM_CONFIGS_URL ||
+    process.env.FALLOM_BASE_URL ||
+    "https://configs.fallom.com";
   initialized = true;
 
   if (!apiKey) {
@@ -91,13 +100,13 @@ function ensureInit(): void {
 
 async function fetchConfigs(timeout = SYNC_TIMEOUT): Promise<void> {
   if (!apiKey) {
-    log('_fetchConfigs: No API key, skipping');
+    log("_fetchConfigs: No API key, skipping");
     return;
   }
 
   try {
     log(`Fetching configs from ${baseUrl}/configs`);
-    
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
@@ -105,14 +114,14 @@ async function fetchConfigs(timeout = SYNC_TIMEOUT): Promise<void> {
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: controller.signal,
     });
-    
+
     clearTimeout(timeoutId);
     log(`Response status: ${resp.status}`);
 
     if (resp.ok) {
-      const data = await resp.json() as { configs: Config[] };
+      const data = (await resp.json()) as { configs: Config[] };
       const configs = data.configs || [];
-      log(`Got ${configs.length} configs: ${configs.map(c => c.key)}`);
+      log(`Got ${configs.length} configs: ${configs.map((c) => c.key)}`);
 
       for (const c of configs) {
         const key = c.key;
@@ -153,17 +162,17 @@ async function fetchSpecificVersion(
         signal: controller.signal,
       }
     );
-    
+
     clearTimeout(timeoutId);
 
     if (resp.ok) {
-      const config = await resp.json() as Config;
-      
+      const config = (await resp.json()) as Config;
+
       if (!configCache.has(configKey)) {
         configCache.set(configKey, { versions: new Map(), latest: null });
       }
       configCache.get(configKey)!.versions.set(version, config);
-      
+
       return config;
     }
   } catch {
@@ -205,24 +214,32 @@ export async function get(
   debugMode = debug;
 
   ensureInit();
-  log(`get() called: configKey=${configKey}, sessionId=${sessionId}, fallback=${fallback}`);
+  log(
+    `get() called: configKey=${configKey}, sessionId=${sessionId}, fallback=${fallback}`
+  );
 
   try {
     let configData = configCache.get(configKey);
-    log(`Cache lookup for '${configKey}': ${configData ? 'found' : 'not found'}`);
+    log(
+      `Cache lookup for '${configKey}': ${configData ? "found" : "not found"}`
+    );
 
     // If not in cache, try fetching (handles cold start / first call)
     if (!configData) {
-      log('Not in cache, fetching...');
+      log("Not in cache, fetching...");
       await fetchConfigs(SYNC_TIMEOUT);
       configData = configCache.get(configKey);
-      log(`After fetch, cache lookup: ${configData ? 'found' : 'still not found'}`);
+      log(
+        `After fetch, cache lookup: ${configData ? "found" : "still not found"}`
+      );
     }
 
     if (!configData) {
       log(`Config not found, using fallback: ${fallback}`);
       if (fallback) {
-        console.warn(`[Fallom WARNING] Config '${configKey}' not found, using fallback model: ${fallback}`);
+        console.warn(
+          `[Fallom WARNING] Config '${configKey}' not found, using fallback model: ${fallback}`
+        );
         return returnWithTrace(configKey, sessionId, fallback, 0);
       }
       throw new Error(
@@ -239,11 +256,15 @@ export async function get(
       config = configData.versions.get(version);
       if (!config) {
         // Not in cache - try fetching it
-        config = await fetchSpecificVersion(configKey, version, SYNC_TIMEOUT) || undefined;
+        config =
+          (await fetchSpecificVersion(configKey, version, SYNC_TIMEOUT)) ||
+          undefined;
       }
       if (!config) {
         if (fallback) {
-          console.warn(`[Fallom WARNING] Config '${configKey}' version ${version} not found, using fallback: ${fallback}`);
+          console.warn(
+            `[Fallom WARNING] Config '${configKey}' version ${version} not found, using fallback: ${fallback}`
+          );
           return returnWithTrace(configKey, sessionId, fallback, 0);
         }
         throw new Error(`Config '${configKey}' version ${version} not found.`);
@@ -255,7 +276,9 @@ export async function get(
       config = configData.versions.get(targetVersion);
       if (!config) {
         if (fallback) {
-          console.warn(`[Fallom WARNING] Config '${configKey}' has no cached version, using fallback: ${fallback}`);
+          console.warn(
+            `[Fallom WARNING] Config '${configKey}' has no cached version, using fallback: ${fallback}`
+          );
           return returnWithTrace(configKey, sessionId, fallback, 0);
         }
         throw new Error(`Config '${configKey}' has no cached version.`);
@@ -270,12 +293,16 @@ export async function get(
       ? variantsRaw
       : Object.values(variantsRaw);
 
-    log(`Config found! Version: ${configVersion}, Variants: ${JSON.stringify(variants)}`);
+    log(
+      `Config found! Version: ${configVersion}, Variants: ${JSON.stringify(
+        variants
+      )}`
+    );
 
     // Deterministic assignment from session_id hash
     // Same session_id always gets same model (sticky)
     // Using 1M buckets for 0.01% granularity
-    const hashBytes = createHash('md5').update(sessionId).digest();
+    const hashBytes = createHash("md5").update(sessionId).digest();
     const hashVal = hashBytes.readUInt32BE(0) % 1_000_000;
     log(`Session hash: ${hashVal} (out of 1,000,000)`);
 
@@ -286,7 +313,13 @@ export async function get(
     for (const v of variants) {
       const oldCumulative = cumulative;
       cumulative += v.weight * 10000;
-      log(`Variant ${v.model}: weight=${v.weight}%, range=${oldCumulative}-${cumulative}, hash=${hashVal}, match=${hashVal < cumulative}`);
+      log(
+        `Variant ${v.model}: weight=${
+          v.weight
+        }%, range=${oldCumulative}-${cumulative}, hash=${hashVal}, match=${
+          hashVal < cumulative
+        }`
+      );
       if (hashVal < cumulative) {
         assignedModel = v.model;
         break;
@@ -295,14 +328,15 @@ export async function get(
 
     log(`✅ Assigned model: ${assignedModel}`);
     return returnWithTrace(configKey, sessionId, assignedModel, configVersion);
-
   } catch (e) {
-    if (e instanceof Error && e.message.includes('not found')) {
+    if (e instanceof Error && e.message.includes("not found")) {
       throw e; // Re-throw "not found" errors
     }
     // Any other error - return fallback if provided
     if (fallback) {
-      console.warn(`[Fallom WARNING] Error getting model for '${configKey}': ${e}. Using fallback: ${fallback}`);
+      console.warn(
+        `[Fallom WARNING] Error getting model for '${configKey}': ${e}. Using fallback: ${fallback}`
+      );
       return returnWithTrace(configKey, sessionId, fallback, 0);
     }
     throw e;
@@ -343,10 +377,10 @@ async function recordSession(
     const timeoutId = setTimeout(() => controller.abort(), RECORD_TIMEOUT);
 
     await fetch(`${baseUrl}/sessions`, {
-      method: 'POST',
+      method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         config_key: configKey,
@@ -362,4 +396,3 @@ async function recordSession(
     // Fail silently - never impact user's app
   }
 }
-

@@ -27,7 +27,7 @@ let fallbackSession: SessionContext | null = null;
 
 // Module state
 let apiKey: string | null = null;
-let baseUrl: string = "https://spans.fallom.com";
+let baseUrl: string = "https://traces.fallom.com";
 let initialized = false;
 let captureContent = true;
 let debugMode = false;
@@ -119,8 +119,9 @@ export async function init(
   apiKey = options.apiKey || process.env.FALLOM_API_KEY || null;
   baseUrl =
     options.baseUrl ||
+    process.env.FALLOM_TRACES_URL ||
     process.env.FALLOM_BASE_URL ||
-    "https://spans.fallom.com";
+    "https://traces.fallom.com";
 
   // Check env var for captureContent (explicit param takes precedence)
   const envCapture = process.env.FALLOM_CAPTURE_CONTENT?.toLowerCase();
