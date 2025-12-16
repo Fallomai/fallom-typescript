@@ -81,19 +81,16 @@ export class FallomSession {
   }
 
   /**
-   * Wrap a Vercel AI SDK model to trace all calls.
+   * Wrap a Vercel AI SDK model to trace all calls (PostHog style).
+   * Returns the same model type with tracing injected.
    */
-  traceModel<
-    T extends {
-      doGenerate?: (...args: any[]) => Promise<any>;
-      doStream?: (...args: any[]) => Promise<any>;
-    }
-  >(model: T): T {
+  traceModel<T>(model: T): T {
     const ctx = this.ctx;
-    const tracedModel = Object.create(model);
+    const tracedModel = Object.create(model as object);
+    const m = model as any;
 
-    if (model.doGenerate) {
-      const originalDoGenerate = model.doGenerate.bind(model);
+    if (m.doGenerate) {
+      const originalDoGenerate = m.doGenerate.bind(model);
       tracedModel.doGenerate = async function (...args: any[]) {
         if (!isInitialized()) return originalDoGenerate(...args);
 
@@ -126,9 +123,10 @@ export class FallomSession {
             prompt_tokens: usage?.promptTokens,
             completion_tokens: usage?.completionTokens,
             total_tokens: usage?.totalTokens,
-            attributes: shouldCaptureContent() && usage
-              ? { "fallom.raw.usage": JSON.stringify(usage) }
-              : undefined,
+            attributes:
+              shouldCaptureContent() && usage
+                ? { "fallom.raw.usage": JSON.stringify(usage) }
+                : undefined,
           }).catch(() => {});
 
           return result;
@@ -156,8 +154,8 @@ export class FallomSession {
       };
     }
 
-    if (model.doStream) {
-      const originalDoStream = model.doStream.bind(model);
+    if (m.doStream) {
+      const originalDoStream = m.doStream.bind(model);
       tracedModel.doStream = async function (...args: any[]) {
         if (!isInitialized()) return originalDoStream(...args);
 
