@@ -1,5 +1,5 @@
 /**
- * Fallom - Model A/B testing, prompt management, and tracing for LLM applications.
+ * Fallom - Model A/B testing, prompt management, tracing, and evals for LLM applications.
  *
  * @example
  * ```typescript
@@ -27,15 +27,31 @@
  *
  * // Get A/B tested model within session
  * const modelName = await session.getModel({ fallback: "gpt-4o-mini" });
+ *
+ * // Run evaluations
+ * fallom.evals.init({ apiKey: "your-api-key" });
+ * const results = await fallom.evals.evaluate({
+ *   dataset: [{ input: "...", output: "...", systemMessage: "..." }],
+ *   metrics: ["answer_relevancy", "faithfulness"]
+ * });
+ * await fallom.evals.uploadResults(results, "My Eval Run");
  * ```
  */
 
 export * as trace from "./trace";
 export * as models from "./models";
 export * as prompts from "./prompts";
+export * as evals from "./evals";
 export { init } from "./init";
 export type { InitOptions } from "./init";
 export type { PromptResult } from "./prompts";
+export type {
+  DatasetItem,
+  EvalResult,
+  MetricName,
+  EvaluateOptions,
+  CompareModelsOptions,
+} from "./evals";
 
 // Session-scoped tracing exports
 export { session, FallomSession } from "./trace";
@@ -54,6 +70,7 @@ export type { FallomExporterOptions } from "./mastra";
 import * as trace from "./trace";
 import * as models from "./models";
 import * as prompts from "./prompts";
+import * as evals from "./evals";
 import { init } from "./init";
 import { session } from "./trace";
 
@@ -62,5 +79,6 @@ export default {
   trace,
   models,
   prompts,
+  evals,
   session,
 };
