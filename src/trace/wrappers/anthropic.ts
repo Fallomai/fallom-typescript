@@ -1,6 +1,6 @@
 /**
  * Anthropic SDK Wrapper
- * 
+ *
  * SDK is "dumb" - just captures raw request/response and sends to microservice.
  * All parsing/extraction happens server-side for easier maintenance.
  */
@@ -14,6 +14,7 @@ import {
 } from "../core";
 import { generateHexId } from "../utils";
 import type { SessionContext } from "../types";
+import { getPromptContext } from "../../prompts";
 
 /**
  * Wrap an Anthropic client to automatically trace all message creations.
@@ -50,22 +51,44 @@ export function wrapAnthropic<
       };
 
       if (captureContent) {
+        // Send ALL request data - microservice extracts what it needs
         attributes["fallom.raw.request"] = JSON.stringify({
           messages: params?.messages,
           system: params?.system,
           model: params?.model,
+          tools: params?.tools,
+          tool_choice: params?.tool_choice,
         });
+
+        // Extract text and tool use from content blocks
+        const contentBlocks = response?.content || [];
+        const textBlocks = contentBlocks.filter((b: any) => b.type === "text");
+        const toolUseBlocks = contentBlocks.filter(
+          (b: any) => b.type === "tool_use"
+        );
+
         attributes["fallom.raw.response"] = JSON.stringify({
-          text: response?.content?.[0]?.text,
+          text: textBlocks.map((b: any) => b.text).join(""),
           finishReason: response?.stop_reason,
           responseId: response?.id,
           model: response?.model,
+          // Tool calls - Anthropic uses tool_use content blocks
+          toolCalls: toolUseBlocks.map((b: any) => ({
+            id: b.id,
+            name: b.name,
+            arguments: b.input,
+          })),
+          // Also send raw content for full fidelity
+          content: contentBlocks,
         });
       }
 
       if (response?.usage) {
         attributes["fallom.raw.usage"] = JSON.stringify(response.usage);
       }
+
+      // Get prompt context if set (one-shot, clears after read)
+      const promptCtx = getPromptContext();
 
       sendTrace({
         config_key: ctx.configKey,
@@ -82,6 +105,11 @@ export function wrapAnthropic<
         duration_ms: endTime - startTime,
         status: "OK",
         attributes,
+        // Prompt context (if prompts.get() or prompts.getAB() was called)
+        prompt_key: promptCtx?.promptKey,
+        prompt_version: promptCtx?.promptVersion,
+        prompt_ab_test_key: promptCtx?.abTestKey,
+        prompt_variant_index: promptCtx?.variantIndex,
       }).catch(() => {});
 
       return response;

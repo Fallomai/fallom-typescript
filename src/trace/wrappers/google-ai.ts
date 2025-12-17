@@ -1,6 +1,6 @@
 /**
  * Google AI SDK Wrapper
- * 
+ *
  * SDK is "dumb" - just captures raw request/response and sends to microservice.
  * All parsing/extraction happens server-side for easier maintenance.
  */
@@ -14,6 +14,7 @@ import {
 } from "../core";
 import { generateHexId } from "../utils";
 import type { SessionContext } from "../types";
+import { getPromptContext } from "../../prompts";
 
 /**
  * Wrap a Google AI model to automatically trace generateContent calls.
@@ -52,16 +53,40 @@ export function wrapGoogleAI<
       };
 
       if (captureContent) {
+        // Send raw request - microservice extracts what it needs
         attributes["fallom.raw.request"] = JSON.stringify(request);
+
+        // Extract function calls from candidates
+        const candidates = result?.candidates || [];
+        const functionCalls: any[] = [];
+
+        for (const candidate of candidates) {
+          const parts = candidate?.content?.parts || [];
+          for (const part of parts) {
+            if (part.functionCall) {
+              functionCalls.push({
+                name: part.functionCall.name,
+                arguments: part.functionCall.args,
+              });
+            }
+          }
+        }
+
         attributes["fallom.raw.response"] = JSON.stringify({
           text: result?.text?.(),
           candidates: result?.candidates,
+          finishReason: candidates[0]?.finishReason,
+          // Tool/function calls - Google uses functionCall in parts
+          toolCalls: functionCalls.length > 0 ? functionCalls : undefined,
         });
       }
 
       if (result?.usageMetadata) {
         attributes["fallom.raw.usage"] = JSON.stringify(result.usageMetadata);
       }
+
+      // Get prompt context if set (one-shot, clears after read)
+      const promptCtx = getPromptContext();
 
       sendTrace({
         config_key: ctx.configKey,
@@ -78,6 +103,11 @@ export function wrapGoogleAI<
         duration_ms: endTime - startTime,
         status: "OK",
         attributes,
+        // Prompt context (if prompts.get() or prompts.getAB() was called)
+        prompt_key: promptCtx?.promptKey,
+        prompt_version: promptCtx?.promptVersion,
+        prompt_ab_test_key: promptCtx?.abTestKey,
+        prompt_variant_index: promptCtx?.variantIndex,
       }).catch(() => {});
 
       return response;

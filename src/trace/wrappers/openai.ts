@@ -1,6 +1,6 @@
 /**
  * OpenAI SDK Wrapper
- * 
+ *
  * SDK is "dumb" - just captures raw request/response and sends to microservice.
  * All parsing/extraction happens server-side for easier maintenance.
  */
@@ -14,6 +14,7 @@ import {
 } from "../core";
 import { generateHexId } from "../utils";
 import type { SessionContext } from "../types";
+import { getPromptContext } from "../../prompts";
 
 /**
  * Wrap an OpenAI client to automatically trace all chat completions.
@@ -54,21 +55,35 @@ export function wrapOpenAI<
       };
 
       if (captureContent) {
+        // Send ALL request data - microservice extracts what it needs
         attributes["fallom.raw.request"] = JSON.stringify({
           messages: params?.messages,
           model: params?.model,
+          tools: params?.tools,
+          tool_choice: params?.tool_choice,
+          functions: params?.functions,
+          function_call: params?.function_call,
         });
+
+        // Send ALL response data including tool calls
+        const choice = response?.choices?.[0];
         attributes["fallom.raw.response"] = JSON.stringify({
-          text: response?.choices?.[0]?.message?.content,
-          finishReason: response?.choices?.[0]?.finish_reason,
+          text: choice?.message?.content,
+          finishReason: choice?.finish_reason,
           responseId: response?.id,
           model: response?.model,
+          // Tool calls - send everything!
+          toolCalls: choice?.message?.tool_calls,
+          functionCall: choice?.message?.function_call,
         });
       }
 
       if (response?.usage) {
         attributes["fallom.raw.usage"] = JSON.stringify(response.usage);
       }
+
+      // Get prompt context if set (one-shot, clears after read)
+      const promptCtx = getPromptContext();
 
       sendTrace({
         config_key: ctx.configKey,
@@ -85,6 +100,11 @@ export function wrapOpenAI<
         duration_ms: endTime - startTime,
         status: "OK",
         attributes,
+        // Prompt context (if prompts.get() or prompts.getAB() was called)
+        prompt_key: promptCtx?.promptKey,
+        prompt_version: promptCtx?.promptVersion,
+        prompt_ab_test_key: promptCtx?.abTestKey,
+        prompt_variant_index: promptCtx?.variantIndex,
       }).catch(() => {});
 
       return response;

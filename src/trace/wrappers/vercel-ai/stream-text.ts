@@ -18,6 +18,7 @@ import {
 } from "../../core";
 import { generateHexId } from "../../utils";
 import type { SessionContext } from "../../types";
+import { getPromptContext } from "../../../prompts";
 
 function log(...args: unknown[]): void {
   if (isDebugMode()) console.log("[Fallom]", ...args);
@@ -160,6 +161,9 @@ export function createStreamTextWrapper(
                 firstTokenTime - startTime;
             }
 
+            // Get prompt context if set (one-shot, clears after read)
+            const promptCtx = getPromptContext();
+
             sendTrace({
               config_key: ctx.configKey,
               session_id: ctx.sessionId,
@@ -179,6 +183,11 @@ export function createStreamTextWrapper(
                 : undefined,
               is_streaming: true,
               attributes,
+              // Prompt context (if prompts.get() or prompts.getAB() was called)
+              prompt_key: promptCtx?.promptKey,
+              prompt_version: promptCtx?.promptVersion,
+              prompt_ab_test_key: promptCtx?.abTestKey,
+              prompt_variant_index: promptCtx?.variantIndex,
             }).catch(() => {});
           }
         )
