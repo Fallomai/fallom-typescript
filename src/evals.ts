@@ -4,38 +4,6 @@
  * Evaluate production outputs or compare different models on your dataset.
  * Results are uploaded to Fallom dashboard for visualization.
  *
- * @example
- * ```typescript
- * import { evals } from '@fallom/sdk';
- *
- * // Initialize
- * evals.init({ apiKey: "your-fallom-key" });
- *
- * // Create dataset
- * const dataset = [
- *   {
- *     input: "What is the capital of France?",
- *     output: "The capital of France is Paris.",
- *     systemMessage: "You are a helpful assistant."
- *   }
- * ];
- *
- * // Evaluate production outputs
- * const results = await evals.evaluate({
- *   dataset,
- *   metrics: ["answer_relevancy", "faithfulness", "completeness"]
- * });
- *
- * // Compare with other models
- * const comparison = await evals.compareModels({
- *   dataset,
- *   models: ["anthropic/claude-3-5-sonnet", "google/gemini-2.0-flash"],
- *   metrics: ["answer_relevancy", "faithfulness"]
- * });
- *
- * // Upload to Fallom dashboard
- * await evals.uploadResults(comparison, "Model Comparison Dec 2024");
- * ```
  */
 
 // Module state
@@ -78,18 +46,12 @@ export interface EvalResult {
   systemMessage?: string;
   model: string;
   isProduction: boolean;
-
-  // Scores (0-1 scale)
   answerRelevancy?: number;
   hallucination?: number;
   toxicity?: number;
   faithfulness?: number;
   completeness?: number;
-
-  // Reasoning from judge
   reasoning: Record<string, string>;
-
-  // Generation metadata (for non-production)
   latencyMs?: number;
   tokensIn?: number;
   tokensOut?: number;
@@ -115,7 +77,7 @@ export type ModelCallable = (messages: Message[]) => Promise<ModelResponse>;
 
 /**
  * A model configuration for use in compareModels().
- * Can represent either an OpenRouter model or a custom model (fine-tuned, self-hosted, etc.)
+ * Can represent either an OpenRouter model or a custom model (fine-tuned, self-hosted)
  */
 export interface Model {
   name: string;
@@ -128,17 +90,12 @@ export interface InitOptions {
 }
 
 export interface EvaluateOptions {
-  /** Either a list of DatasetItem OR a string (dataset key to fetch from Fallom) */
   dataset: DatasetInput;
   metrics?: MetricName[];
-  /** Model to use as judge via OpenRouter (default: openai/gpt-4o-mini) */
   judgeModel?: string;
-  /** Name for this evaluation run (auto-generated if not provided) */
   name?: string;
-  /** Optional description */
   description?: string;
   verbose?: boolean;
-  /** @internal Skip upload when called from compareModels */
   _skipUpload?: boolean;
 }
 
@@ -320,21 +277,6 @@ async function resolveDataset(
 /**
  * Evaluate production outputs against specified metrics using G-Eval.
  * Results are automatically uploaded to Fallom dashboard.
- *
- * @example
- * ```typescript
- * // With local dataset
- * const results = await evals.evaluate({
- *   dataset: myDataset,
- *   metrics: ["answer_relevancy", "faithfulness"]
- * });
- *
- * // With dataset from Fallom (just pass the key!)
- * const results = await evals.evaluate({
- *   dataset: "my-dataset-key",
- *   metrics: ["answer_relevancy", "faithfulness"]
- * });
- * ```
  */
 export async function evaluate(
   options: EvaluateOptions
@@ -472,25 +414,6 @@ async function callModelOpenRouter(
  * @param modelId - The OpenAI model ID (e.g., "gpt-4o" or "ft:gpt-4o-2024-08-06:org::id")
  * @param options - Configuration options
  * @returns A Model instance that can be used in compareModels()
- *
- * @example
- * ```typescript
- * // Fine-tuned model
- * const fineTuned = evals.createOpenAIModel("ft:gpt-4o-2024-08-06:my-org::abc123", {
- *   name: "my-fine-tuned-gpt4"
- * });
- *
- * // Azure OpenAI
- * const azure = evals.createOpenAIModel("gpt-4", {
- *   baseURL: "https://my-resource.openai.azure.com/",
- *   apiKey: "azure-api-key"
- * });
- *
- * const comparison = await evals.compareModels({
- *   dataset,
- *   models: [fineTuned, "openai/gpt-4o"]
- * });
- * ```
  */
 export function createOpenAIModel(
   modelId: string,
@@ -538,28 +461,6 @@ export function createOpenAIModel(
  * @param name - Display name for the model
  * @param options - Configuration options
  * @returns A Model instance
- *
- * @example
- * ```typescript
- * // Self-hosted vLLM
- * const llama = evals.createCustomModel("my-llama-70b", {
- *   endpoint: "http://localhost:8000/v1/chat/completions",
- *   modelValue: "meta-llama/Llama-3.1-70B-Instruct"
- * });
- *
- * // Ollama
- * const mistral = evals.createCustomModel("ollama-mistral", {
- *   endpoint: "http://localhost:11434/v1/chat/completions",
- *   modelValue: "mistral"
- * });
- *
- * // Custom API with auth
- * const custom = evals.createCustomModel("my-model", {
- *   endpoint: "https://my-api.com/v1/chat/completions",
- *   apiKey: "my-api-key",
- *   headers: { "X-Custom-Header": "value" }
- * });
- * ```
  */
 export function createCustomModel(
   name: string,
@@ -637,19 +538,6 @@ export function createCustomModel(
  * @param name - Display name for the model
  * @param callFn - Function that takes messages and returns a response
  * @returns A Model instance
- *
- * @example
- * ```typescript
- * const myModel = evals.createModelFromCallable("my-model", async (messages) => {
- *   // Call your model however you want
- *   const response = await myCustomAPI(messages);
- *   return {
- *     content: response.text,
- *     tokensIn: response.inputTokens,
- *     tokensOut: response.outputTokens,
- *   };
- * });
- * ```
  */
 export function createModelFromCallable(
   name: string,
@@ -660,25 +548,6 @@ export function createModelFromCallable(
 
 /**
  * Compare multiple models on the same dataset.
- *
- * @example
- * ```typescript
- * // Using a dataset from Fallom (just pass the key!)
- * const comparison = await evals.compareModels({
- *   dataset: "my-dataset-key",
- *   models: ["anthropic/claude-3-5-sonnet", "google/gemini-2.0-flash"],
- *   metrics: ["answer_relevancy", "faithfulness"]
- * });
- *
- * // Including a fine-tuned model
- * const fineTuned = evals.createOpenAIModel("ft:gpt-4o-2024-08-06:my-org::abc123", {
- *   name: "my-fine-tuned"
- * });
- * const comparison = await evals.compareModels({
- *   dataset: "my-dataset-key",
- *   models: [fineTuned, "openai/gpt-4o", "anthropic/claude-3-5-sonnet"]
- * });
- * ```
  */
 export async function compareModels(
   options: CompareModelsOptions
@@ -1004,21 +873,6 @@ export function datasetFromTraces(
  * @param datasetKey - The unique key of the dataset (e.g., "customer-support-qa")
  * @param version - Specific version number to fetch. If undefined, fetches the latest version.
  * @returns List of DatasetItem ready for evaluation
- *
- * @example
- * ```typescript
- * // Fetch a dataset from Fallom
- * const dataset = await evals.datasetFromFallom("customer-support-qa");
- *
- * // Fetch a specific version
- * const dataset = await evals.datasetFromFallom("customer-support-qa", 2);
- *
- * // Use it directly in evaluate
- * const results = await evals.evaluate({
- *   dataset: await evals.datasetFromFallom("my-dataset"),
- *   metrics: ["answer_relevancy", "faithfulness"]
- * });
- * ```
  */
 export async function datasetFromFallom(
   datasetKey: string,
