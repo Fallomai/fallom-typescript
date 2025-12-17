@@ -1,6 +1,6 @@
 /**
  * Vercel AI SDK generateText wrapper.
- * 
+ *
  * SDK is "dumb" - just captures raw request/response and sends to microservice.
  * All parsing/extraction happens server-side for easier maintenance.
  */
@@ -43,7 +43,10 @@ export function createGenerateTextWrapper(
       const endTime = Date.now();
 
       if (debug || isDebugMode()) {
-        console.log("\n🔍 [Fallom Debug] generateText raw result:", JSON.stringify(result, null, 2));
+        console.log(
+          "\n🔍 [Fallom Debug] generateText raw result:",
+          JSON.stringify(result, null, 2)
+        );
       }
 
       const modelId =
@@ -51,27 +54,44 @@ export function createGenerateTextWrapper(
         params?.model?.modelId ||
         String(params?.model || "unknown");
 
-      // SDK is dumb - just send raw data, microservice does all parsing
+      // SDK is dumb - just send ALL raw data, microservice does all parsing
       const attributes: Record<string, unknown> = {
         "fallom.sdk_version": "2",
         "fallom.method": "generateText",
       };
 
       if (captureContent) {
-        // Send raw request params (microservice extracts prompts, system, etc.)
+        // Send raw request params - include EVERYTHING
         attributes["fallom.raw.request"] = JSON.stringify({
           prompt: params?.prompt,
           messages: params?.messages,
           system: params?.system,
           model: modelId,
+          tools: params?.tools ? Object.keys(params.tools) : undefined,
+          maxSteps: params?.maxSteps,
         });
-        
-        // Send raw response (microservice extracts text, finish_reason, etc.)
+
+        // Send COMPLETE raw response - microservice extracts what it needs
+        // This includes toolCalls, toolResults, steps, responseMessages, etc.
         attributes["fallom.raw.response"] = JSON.stringify({
           text: result?.text,
           finishReason: result?.finishReason,
           responseId: result?.response?.id,
           modelId: result?.response?.modelId,
+          // Tool call data - send everything!
+          toolCalls: result?.toolCalls,
+          toolResults: result?.toolResults,
+          // Multi-step agent data
+          steps: result?.steps?.map((step: any) => ({
+            stepType: step?.stepType,
+            text: step?.text,
+            finishReason: step?.finishReason,
+            toolCalls: step?.toolCalls,
+            toolResults: step?.toolResults,
+            usage: step?.usage,
+          })),
+          // Response messages (includes tool call/result messages)
+          responseMessages: result?.responseMessages,
         });
       }
 
@@ -80,7 +100,9 @@ export function createGenerateTextWrapper(
         attributes["fallom.raw.usage"] = JSON.stringify(result.usage);
       }
       if (result?.experimental_providerMetadata) {
-        attributes["fallom.raw.providerMetadata"] = JSON.stringify(result.experimental_providerMetadata);
+        attributes["fallom.raw.providerMetadata"] = JSON.stringify(
+          result.experimental_providerMetadata
+        );
       }
 
       sendTrace({
@@ -103,7 +125,8 @@ export function createGenerateTextWrapper(
       return result;
     } catch (error: any) {
       const endTime = Date.now();
-      const modelId = params?.model?.modelId || String(params?.model || "unknown");
+      const modelId =
+        params?.model?.modelId || String(params?.model || "unknown");
 
       sendTrace({
         config_key: ctx.configKey,
