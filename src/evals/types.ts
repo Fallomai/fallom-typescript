@@ -1,0 +1,132 @@
+/**
+ * Type definitions for Fallom Evals.
+ */
+
+/** Built-in metric names */
+export type MetricName =
+  | "answer_relevancy"
+  | "hallucination"
+  | "toxicity"
+  | "faithfulness"
+  | "completeness";
+
+/** List of all available built-in metrics */
+export const AVAILABLE_METRICS: MetricName[] = [
+  "answer_relevancy",
+  "hallucination",
+  "toxicity",
+  "faithfulness",
+  "completeness",
+];
+
+/**
+ * Define a custom evaluation metric using G-Eval.
+ */
+export interface CustomMetric {
+  /** Unique identifier for the metric (e.g., "brand_alignment") */
+  name: string;
+  /** Description of what the metric evaluates */
+  criteria: string;
+  /** List of evaluation steps for the LLM judge to follow */
+  steps: string[];
+}
+
+/** Metric can be a built-in name or a custom metric */
+export type MetricInput = MetricName | CustomMetric;
+
+/** Dataset can be a list of items OR a string (dataset key to fetch from Fallom) */
+export type DatasetInput = DatasetItem[] | string;
+
+/** A single item in an evaluation dataset */
+export interface DatasetItem {
+  input: string;
+  output: string;
+  systemMessage?: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** Evaluation result for a single item */
+export interface EvalResult {
+  input: string;
+  output: string;
+  systemMessage?: string;
+  model: string;
+  isProduction: boolean;
+  answerRelevancy?: number;
+  hallucination?: number;
+  toxicity?: number;
+  faithfulness?: number;
+  completeness?: number;
+  reasoning: Record<string, string>;
+  latencyMs?: number;
+  tokensIn?: number;
+  tokensOut?: number;
+  cost?: number;
+}
+
+/** Response format from model calls */
+export interface ModelResponse {
+  content: string;
+  tokensIn?: number;
+  tokensOut?: number;
+  cost?: number;
+}
+
+/** Message format for model calls */
+export interface Message {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+/** Callable type for custom models */
+export type ModelCallable = (messages: Message[]) => Promise<ModelResponse>;
+
+/**
+ * A model configuration for use in compareModels().
+ * Can represent either an OpenRouter model or a custom model (fine-tuned, self-hosted)
+ */
+export interface Model {
+  name: string;
+  callFn?: ModelCallable;
+}
+
+/** Options for init() */
+export interface InitOptions {
+  apiKey?: string;
+  baseUrl?: string;
+}
+
+/** Options for evaluate() */
+export interface EvaluateOptions {
+  dataset: DatasetInput;
+  /** List of metrics to run (built-in or custom). Default: all built-in metrics */
+  metrics?: MetricInput[];
+  judgeModel?: string;
+  name?: string;
+  description?: string;
+  verbose?: boolean;
+  _skipUpload?: boolean;
+}
+
+/** Options for compareModels() */
+export interface CompareModelsOptions extends EvaluateOptions {
+  /**
+   * List of models to test. Each can be:
+   * - A string (model slug for OpenRouter, e.g., "anthropic/claude-3-5-sonnet")
+   * - A Model object (for custom/fine-tuned models)
+   */
+  models: Array<string | Model>;
+  includeProduction?: boolean;
+  modelKwargs?: Record<string, unknown>;
+}
+
+/** Type guard to check if a metric is a CustomMetric */
+export function isCustomMetric(metric: MetricInput): metric is CustomMetric {
+  return typeof metric === "object" && "name" in metric && "criteria" in metric;
+}
+
+/** Get the name of a metric (works for both built-in and custom) */
+export function getMetricName(metric: MetricInput): string {
+  return isCustomMetric(metric) ? metric.name : metric;
+}
+
