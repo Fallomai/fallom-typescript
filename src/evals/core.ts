@@ -94,7 +94,9 @@ async function runGEval(
     throw new Error(`G-Eval API error: ${response.statusText}`);
   }
 
-  const data = await response.json();
+  const data = (await response.json()) as {
+    choices: Array<{ message: { content: string } }>;
+  };
   const result = JSON.parse(data.choices[0].message.content);
   return { score: result.score, reasoning: result.overall_reasoning };
 }
@@ -151,7 +153,14 @@ async function callModelOpenRouter(
     throw new Error(`OpenRouter API error: ${response.statusText}`);
   }
 
-  const data = await response.json();
+  const data = (await response.json()) as {
+    choices: Array<{ message: { content: string } }>;
+    usage?: {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      total_cost?: number;
+    };
+  };
   return {
     content: data.choices[0].message.content,
     tokensIn: data.usage?.prompt_tokens,
@@ -535,7 +544,7 @@ async function uploadResults(
       throw new Error(`Upload failed: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as { run_id: string };
     const dashboardUrl = `${_baseUrl}/evals/${data.run_id}`;
 
     if (verbose) {

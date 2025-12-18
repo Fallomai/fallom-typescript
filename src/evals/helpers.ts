@@ -61,7 +61,10 @@ export function createOpenAIModel(
       throw new Error(`OpenAI API error: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as {
+      choices: Array<{ message: { content: string | null } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
     return {
       content: data.choices[0].message.content || "",
       tokensIn: data.usage?.prompt_tokens,
@@ -127,7 +130,14 @@ export function createCustomModel(
       throw new Error(`API error: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as {
+      choices: Array<{ message: { content: string } }>;
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_cost?: number;
+      };
+    };
     return {
       content: data.choices[0].message.content,
       tokensIn: data.usage?.prompt_tokens,
@@ -271,7 +281,16 @@ export async function datasetFromFallom(
     throw new Error(`Failed to fetch dataset: ${response.statusText}`);
   }
 
-  const data = await response.json();
+  const data = (await response.json()) as {
+    entries?: Array<{
+      input: string;
+      output: string;
+      systemMessage?: string;
+      metadata?: Record<string, unknown>;
+    }>;
+    dataset?: { name?: string };
+    version?: { version?: number };
+  };
 
   // Convert to DatasetItem list
   const items: DatasetItem[] = [];
