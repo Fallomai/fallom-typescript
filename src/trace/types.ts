@@ -9,6 +9,10 @@ export interface SessionContext {
   configKey: string;
   sessionId: string;
   customerId?: string;
+  /** Custom key-value metadata for filtering/grouping */
+  metadata?: Record<string, string | number | boolean>;
+  /** Simple string tags for quick filtering */
+  tags?: string[];
 }
 
 /**
@@ -78,6 +82,10 @@ export interface TraceData {
   time_to_first_token_ms?: number;
   is_streaming?: boolean;
   
+  // Custom metadata and tags for filtering
+  metadata?: Record<string, string | number | boolean>;
+  tags?: string[];
+  
   // Raw data container - microservice parses everything from here
   attributes?: Record<string, unknown>;
   
@@ -98,6 +106,18 @@ export interface SessionOptions {
   sessionId: string;
   /** Optional customer/user identifier for analytics */
   customerId?: string;
+  /** 
+   * Custom key-value metadata for filtering/grouping traces.
+   * Use this for structured data like deployment type, environment, etc.
+   * @example { deployment: "dedicated", requestType: "transcript", provider: "novita" }
+   */
+  metadata?: Record<string, string | number | boolean>;
+  /**
+   * Simple string tags for quick filtering.
+   * Use this for simple labels/categories.
+   * @example ["production", "dedicated", "transcript-analysis"]
+   */
+  tags?: string[];
 }
 
 /**
