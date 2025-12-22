@@ -19,6 +19,7 @@ import {
 import { generateHexId } from "../../utils";
 import type { SessionContext } from "../../types";
 import { getPromptContext } from "../../../prompts";
+import { sanitizeMetadataOnly } from "./utils";
 
 function log(...args: unknown[]): void {
   if (isDebugMode()) console.log("[Fallom]", ...args);
@@ -228,6 +229,13 @@ export function createStreamTextWrapper(
           if (firstTokenTime) {
             attributes["fallom.time_to_first_token_ms"] =
               firstTokenTime - startTime;
+          }
+
+          // Send result metadata for debugging (content stripped, keeps provider info)
+          try {
+            attributes["fallom.raw.metadata"] = JSON.stringify(result, sanitizeMetadataOnly);
+          } catch {
+            // Ignore serialization errors
           }
 
           // Build waterfall timing data using ACTUAL captured tool execution times

@@ -15,6 +15,7 @@ import {
 import { generateHexId } from "../utils";
 import type { SessionContext } from "../types";
 import { getPromptContext } from "../../prompts";
+import { sanitizeMetadataOnly } from "./shared-utils";
 
 /**
  * Wrap an OpenAI client to automatically trace all chat completions.
@@ -80,6 +81,16 @@ export function wrapOpenAI<
 
       if (response?.usage) {
         attributes["fallom.raw.usage"] = JSON.stringify(response.usage);
+      }
+
+      // Send response metadata for debugging (content stripped, keeps provider info)
+      try {
+        attributes["fallom.raw.metadata"] = JSON.stringify(
+          response,
+          sanitizeMetadataOnly
+        );
+      } catch {
+        // Ignore serialization errors
       }
 
       // Build waterfall timing data

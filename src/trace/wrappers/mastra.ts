@@ -14,6 +14,7 @@ import {
 } from "../core";
 import { generateHexId } from "../utils";
 import type { SessionContext } from "../types";
+import { sanitizeMetadataOnly } from "./shared-utils";
 
 /**
  * Wrap a Mastra agent to automatically trace all generate calls.
@@ -56,6 +57,16 @@ export function wrapMastraAgent<
       if (captureContent) {
         attributes["fallom.raw.request"] = JSON.stringify(input);
         attributes["fallom.raw.response"] = JSON.stringify(result);
+      }
+
+      // Send result metadata for debugging (content stripped, keeps provider info)
+      try {
+        attributes["fallom.raw.metadata"] = JSON.stringify(
+          result,
+          sanitizeMetadataOnly
+        );
+      } catch {
+        // Ignore serialization errors
       }
 
       sendTrace({

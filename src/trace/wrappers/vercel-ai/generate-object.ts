@@ -16,6 +16,7 @@ import {
 import { generateHexId } from "../../utils";
 import type { SessionContext } from "../../types";
 import { getPromptContext } from "../../../prompts";
+import { sanitizeMetadataOnly } from "./utils";
 
 export function createGenerateObjectWrapper(
   aiModule: any,
@@ -85,6 +86,13 @@ export function createGenerateObjectWrapper(
         attributes["fallom.raw.providerMetadata"] = JSON.stringify(
           result.experimental_providerMetadata
         );
+      }
+
+      // Send result metadata for debugging (content stripped, keeps provider info)
+      try {
+        attributes["fallom.raw.metadata"] = JSON.stringify(result, sanitizeMetadataOnly);
+      } catch {
+        // Ignore serialization errors
       }
 
       // Get prompt context if set (one-shot, clears after read)

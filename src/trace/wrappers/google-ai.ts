@@ -15,6 +15,7 @@ import {
 import { generateHexId } from "../utils";
 import type { SessionContext } from "../types";
 import { getPromptContext } from "../../prompts";
+import { sanitizeMetadataOnly } from "./shared-utils";
 
 /**
  * Wrap a Google AI model to automatically trace generateContent calls.
@@ -83,6 +84,16 @@ export function wrapGoogleAI<
 
       if (result?.usageMetadata) {
         attributes["fallom.raw.usage"] = JSON.stringify(result.usageMetadata);
+      }
+
+      // Send response metadata for debugging (content stripped, keeps provider info)
+      try {
+        attributes["fallom.raw.metadata"] = JSON.stringify(
+          result,
+          sanitizeMetadataOnly
+        );
+      } catch {
+        // Ignore serialization errors
       }
 
       // Build waterfall timing data
