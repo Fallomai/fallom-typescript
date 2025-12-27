@@ -8,7 +8,9 @@ export type MetricName =
   | "hallucination"
   | "toxicity"
   | "faithfulness"
-  | "completeness";
+  | "completeness"
+  | "coherence"
+  | "bias";
 
 /** List of all available built-in metrics */
 export const AVAILABLE_METRICS: MetricName[] = [
@@ -17,6 +19,8 @@ export const AVAILABLE_METRICS: MetricName[] = [
   "toxicity",
   "faithfulness",
   "completeness",
+  "coherence",
+  "bias",
 ];
 
 /**
@@ -57,6 +61,8 @@ export interface EvalResult {
   toxicity?: number;
   faithfulness?: number;
   completeness?: number;
+  coherence?: number;
+  bias?: number;
   reasoning: Record<string, string>;
   latencyMs?: number;
   tokensIn?: number;
