@@ -55,8 +55,15 @@ export type {
 
 export { AVAILABLE_METRICS, isCustomMetric, getMetricName } from "./types";
 
-// Prompts
-export { METRIC_PROMPTS } from "./prompts";
+// Prompts and G-Eval core
+export {
+  METRIC_PROMPTS,
+  buildGEvalPrompt,
+  runGEval,
+  calculateAggregateScores,
+  detectRegression,
+  type GEvalScore,
+} from "./prompts";
 
 // Core functions
 export {

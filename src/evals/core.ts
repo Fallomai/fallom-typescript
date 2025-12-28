@@ -16,7 +16,7 @@ import type {
   LLMTestCase,
 } from "./types";
 import { AVAILABLE_METRICS, isCustomMetric, getMetricName } from "./types";
-import { METRIC_PROMPTS, buildGEvalPrompt } from "./prompts";
+import { runGEval as runGEvalCore } from "./prompts";
 import { datasetFromFallom } from "./helpers";
 
 // Module state
@@ -46,6 +46,7 @@ export function init(options: InitOptions = {}): void {
 
 /**
  * Run G-Eval for a single metric using OpenRouter.
+ * Wrapper around the core runGEval that handles MetricInput type.
  */
 async function runGEval(
   metric: MetricInput,
@@ -54,52 +55,12 @@ async function runGEval(
   systemMessage: string | undefined,
   judgeModel: string
 ): Promise<{ score: number; reasoning: string }> {
-  const openrouterKey = process.env.OPENROUTER_API_KEY;
-  if (!openrouterKey) {
-    throw new Error(
-      "OPENROUTER_API_KEY environment variable required for evaluations."
-    );
-  }
+  // Convert MetricInput to the format expected by runGEvalCore
+  const metricArg = isCustomMetric(metric)
+    ? { name: metric.name, criteria: metric.criteria, steps: metric.steps }
+    : metric;
 
-  // Get metric config - either from built-in or custom metric
-  const config = isCustomMetric(metric)
-    ? { criteria: metric.criteria, steps: metric.steps }
-    : METRIC_PROMPTS[metric];
-
-  const prompt = buildGEvalPrompt(
-    config.criteria,
-    config.steps,
-    systemMessage,
-    inputText,
-    outputText
-  );
-
-  const response = await fetch(
-    "https://openrouter.ai/api/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${openrouterKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: judgeModel,
-        messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" },
-        temperature: 0,
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error(`G-Eval API error: ${response.statusText}`);
-  }
-
-  const data = (await response.json()) as {
-    choices: Array<{ message: { content: string } }>;
-  };
-  const result = JSON.parse(data.choices[0].message.content);
-  return { score: result.score, reasoning: result.overall_reasoning };
+  return runGEvalCore(metricArg, inputText, outputText, systemMessage, judgeModel);
 }
 
 /**
@@ -542,6 +503,8 @@ async function uploadResults(
       toxicity: r.toxicity,
       faithfulness: r.faithfulness,
       completeness: r.completeness,
+      coherence: r.coherence,
+      bias: r.bias,
       reasoning: r.reasoning,
       latency_ms: r.latencyMs,
       tokens_in: r.tokensIn,

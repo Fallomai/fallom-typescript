@@ -53,6 +53,15 @@ export type {
   CompareModelsOptions,
 } from "./evals";
 
+// G-Eval core exports for direct import (used by eval-worker)
+export {
+  runGEval,
+  calculateAggregateScores,
+  detectRegression,
+  buildGEvalPrompt,
+  type GEvalScore,
+} from "./evals";
+
 // Session-scoped tracing exports
 export { session, FallomSession } from "./trace";
 export type { SessionOptions, SessionContext } from "./trace";

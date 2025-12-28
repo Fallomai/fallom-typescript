@@ -140,10 +140,10 @@ export function createGenerateTextWrapper(
             }
           }
           return {
-            toolCallId: tc?.toolCallId,
-            toolName: tc?.toolName,
+          toolCallId: tc?.toolCallId,
+          toolName: tc?.toolName,
             args,
-            type: tc?.type,
+          type: tc?.type,
           };
         };
 
@@ -158,10 +158,10 @@ export function createGenerateTextWrapper(
             }
           }
           return {
-            toolCallId: tr?.toolCallId,
-            toolName: tr?.toolName,
+          toolCallId: tr?.toolCallId,
+          toolName: tr?.toolName,
             result,
-            type: tr?.type,
+          type: tr?.type,
           };
         };
 

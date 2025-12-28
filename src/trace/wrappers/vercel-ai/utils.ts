@@ -1,6 +1,6 @@
 /**
  * Vercel AI SDK wrapper utilities.
- *
+ * 
  * Minimal helpers - most logic is in the microservice.
  */
 
