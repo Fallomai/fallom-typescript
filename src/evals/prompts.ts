@@ -109,7 +109,9 @@ ${criteria}
 ${stepsText}
 
 ## Content to Evaluate
-${systemMessage ? `**System Message:**\n${systemMessage}\n\n` : ""}**User Input:**
+${
+  systemMessage ? `**System Message:**\n${systemMessage}\n\n` : ""
+}**User Input:**
 ${inputText}
 
 **LLM Output:**
@@ -154,6 +156,10 @@ export interface RunGEvalOptions {
   openrouterKey?: string;
   /** Optional Fallom API key to enable tracing of the judge LLM call */
   fallomApiKey?: string;
+  /** Optional session ID for tracing (e.g., eval run ID) */
+  traceSessionId?: string;
+  /** Optional customer ID for tracing (e.g., organization ID) */
+  traceCustomerId?: string;
 }
 
 /**
@@ -171,6 +177,8 @@ export async function runGEval(options: RunGEvalOptions): Promise<GEvalScore> {
     judgeModel,
     openrouterKey,
     fallomApiKey,
+    traceSessionId,
+    traceCustomerId,
   } = options;
 
   const apiKey = openrouterKey || process.env.OPENROUTER_API_KEY;
@@ -225,7 +233,11 @@ export async function runGEval(options: RunGEvalOptions): Promise<GEvalScore> {
 
   const data = (await response.json()) as {
     choices: Array<{ message: { content: string } }>;
-    usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+    usage?: {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      total_tokens?: number;
+    };
   };
 
   const endTime = Date.now();
@@ -248,6 +260,8 @@ export async function runGEval(options: RunGEvalOptions): Promise<GEvalScore> {
         startTime,
         endTime,
         usage: data.usage,
+        sessionId: traceSessionId,
+        customerId: traceCustomerId,
       }).catch(() => {
         // Silently ignore trace errors - don't affect eval results
       });
@@ -273,7 +287,13 @@ async function sendGEvalTrace(options: {
   reasoning: string;
   startTime: number;
   endTime: number;
-  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
+  sessionId?: string;
+  customerId?: string;
 }): Promise<void> {
   const {
     fallomApiKey,
@@ -286,13 +306,16 @@ async function sendGEvalTrace(options: {
     startTime,
     endTime,
     usage,
+    sessionId,
+    customerId,
   } = options;
 
   const traceUrl = process.env.FALLOM_TRACES_URL || "https://traces.fallom.com";
 
   const traceData = {
     config_key: "eval-worker",
-    session_id: `geval-${Date.now()}`,
+    session_id: sessionId || `geval-${Date.now()}`,
+    customer_id: customerId,
     trace_id: generateHexId(32),
     span_id: generateHexId(16),
     name: `geval.${metricName}`,
@@ -424,4 +447,3 @@ export function detectRegression(
 
   return { detected, details };
 }
-
