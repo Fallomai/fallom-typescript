@@ -19,7 +19,7 @@ import {
 import { generateHexId } from "../../utils";
 import type { SessionContext } from "../../types";
 import { getPromptContext } from "../../../prompts";
-import { sanitizeMetadataOnly } from "./utils";
+import { sanitizeMetadataOnly, extractProviderInfo, providerInfoToAttributes } from "./utils";
 
 export function createStreamObjectWrapper(
   aiModule: any,
@@ -72,11 +72,16 @@ export function createStreamObjectWrapper(
             }
           }
 
+          // Extract provider info for debugging (what SDK/provider the user is using)
+          const providerInfo = extractProviderInfo(params?.model, aiModule, result);
+
           // SDK is dumb - just send raw data
           const attributes: Record<string, unknown> = {
             "fallom.sdk_version": "2",
             "fallom.method": "streamObject",
             "fallom.is_streaming": true,
+            // Provider info for debugging
+            ...providerInfoToAttributes(providerInfo),
           };
 
           if (captureContent) {

@@ -19,7 +19,7 @@ import {
 import { generateHexId } from "../../utils";
 import type { SessionContext } from "../../types";
 import { getPromptContext } from "../../../prompts";
-import { sanitizeMetadataOnly } from "./utils";
+import { sanitizeMetadataOnly, extractProviderInfo, providerInfoToAttributes } from "./utils";
 
 function log(...args: unknown[]): void {
   if (isDebugMode()) console.log("[Fallom]", ...args);
@@ -53,36 +53,55 @@ export function createStreamTextWrapper(
       )) {
         if (tool && typeof tool.execute === "function") {
           const originalExecute = tool.execute;
-          wrappedTools[toolName] = {
-            ...tool,
-            execute: async (...executeArgs: any[]) => {
-              const toolStartTime = Date.now();
-              const toolCallId = `${toolName}-${toolStartTime}`;
+          
+          // Create a new wrapped tool that preserves all original properties
+          // Use Object.create to maintain prototype chain for proper Zod schema handling (AI SDK v6+)
+          const wrappedTool = Object.create(Object.getPrototypeOf(tool) || {});
+          
+          // Copy all own properties (including symbol properties for Zod schemas)
+          const allKeys = [
+            ...Object.getOwnPropertyNames(tool),
+            ...Object.getOwnPropertySymbols(tool),
+          ];
+          
+          for (const key of allKeys) {
+            if (key === "execute") continue; // We'll override execute
+            const descriptor = Object.getOwnPropertyDescriptor(tool, key);
+            if (descriptor) {
+              Object.defineProperty(wrappedTool, key, descriptor);
+            }
+          }
+          
+          // Override execute with timing wrapper
+          wrappedTool.execute = async (...executeArgs: any[]) => {
+            const toolStartTime = Date.now();
+            const toolCallId = `${toolName}-${toolStartTime}`;
 
-              try {
-                const result = await originalExecute(...executeArgs);
-                const toolEndTime = Date.now();
+            try {
+              const result = await originalExecute(...executeArgs);
+              const toolEndTime = Date.now();
 
-                toolTimings.set(toolCallId, {
-                  name: toolName,
-                  startTime: toolStartTime - startTime,
-                  endTime: toolEndTime - startTime,
-                  duration: toolEndTime - toolStartTime,
-                });
+              toolTimings.set(toolCallId, {
+                name: toolName,
+                startTime: toolStartTime - startTime,
+                endTime: toolEndTime - startTime,
+                duration: toolEndTime - toolStartTime,
+              });
 
-                return result;
-              } catch (error) {
-                const toolEndTime = Date.now();
-                toolTimings.set(toolCallId, {
-                  name: toolName,
-                  startTime: toolStartTime - startTime,
-                  endTime: toolEndTime - startTime,
-                  duration: toolEndTime - toolStartTime,
-                });
-                throw error;
-              }
-            },
+              return result;
+            } catch (error) {
+              const toolEndTime = Date.now();
+              toolTimings.set(toolCallId, {
+                name: toolName,
+                startTime: toolStartTime - startTime,
+                endTime: toolEndTime - startTime,
+                duration: toolEndTime - toolStartTime,
+              });
+              throw error;
+            }
           };
+          
+          wrappedTools[toolName] = wrappedTool;
         } else {
           wrappedTools[toolName] = tool;
         }
@@ -216,11 +235,16 @@ export function createStreamTextWrapper(
               }
             }
 
+            // Extract provider info for debugging (what SDK/provider the user is using)
+            const providerInfo = extractProviderInfo(params?.model, aiModule, result);
+
             // SDK is dumb - just send ALL raw data, microservice does all parsing
             const attributes: Record<string, unknown> = {
               "fallom.sdk_version": "2",
               "fallom.method": "streamText",
               "fallom.is_streaming": true,
+              // Provider info for debugging
+              ...providerInfoToAttributes(providerInfo),
             };
 
             if (captureContent) {

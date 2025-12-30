@@ -16,7 +16,11 @@ import {
 import { generateHexId } from "../../utils";
 import type { SessionContext } from "../../types";
 import { getPromptContext } from "../../../prompts";
-import { sanitizeMetadataOnly } from "./utils";
+import {
+  sanitizeMetadataOnly,
+  extractProviderInfo,
+  providerInfoToAttributes,
+} from "./utils";
 
 export function createGenerateTextWrapper(
   aiModule: any,
@@ -56,36 +60,55 @@ export function createGenerateTextWrapper(
       )) {
         if (tool && typeof tool.execute === "function") {
           const originalExecute = tool.execute;
-          wrappedTools[toolName] = {
-            ...tool,
-            execute: async (...executeArgs: any[]) => {
-              const toolStartTime = Date.now();
-              const toolCallId = `${toolName}-${toolStartTime}`;
 
-              try {
-                const result = await originalExecute(...executeArgs);
-                const toolEndTime = Date.now();
+          // Create a new wrapped tool that preserves all original properties
+          // Use Object.create to maintain prototype chain for proper Zod schema handling (AI SDK v6+)
+          const wrappedTool = Object.create(Object.getPrototypeOf(tool) || {});
 
-                toolTimings.set(toolCallId, {
-                  name: toolName,
-                  startTime: toolStartTime - startTime, // Relative to request start
-                  endTime: toolEndTime - startTime,
-                  duration: toolEndTime - toolStartTime,
-                });
+          // Copy all own properties (including symbol properties for Zod schemas)
+          const allKeys = [
+            ...Object.getOwnPropertyNames(tool),
+            ...Object.getOwnPropertySymbols(tool),
+          ];
 
-                return result;
-              } catch (error) {
-                const toolEndTime = Date.now();
-                toolTimings.set(toolCallId, {
-                  name: toolName,
-                  startTime: toolStartTime - startTime,
-                  endTime: toolEndTime - startTime,
-                  duration: toolEndTime - toolStartTime,
-                });
-                throw error;
-              }
-            },
+          for (const key of allKeys) {
+            if (key === "execute") continue; // We'll override execute
+            const descriptor = Object.getOwnPropertyDescriptor(tool, key);
+            if (descriptor) {
+              Object.defineProperty(wrappedTool, key, descriptor);
+            }
+          }
+
+          // Override execute with timing wrapper
+          wrappedTool.execute = async (...executeArgs: any[]) => {
+            const toolStartTime = Date.now();
+            const toolCallId = `${toolName}-${toolStartTime}`;
+
+            try {
+              const result = await originalExecute(...executeArgs);
+              const toolEndTime = Date.now();
+
+              toolTimings.set(toolCallId, {
+                name: toolName,
+                startTime: toolStartTime - startTime, // Relative to request start
+                endTime: toolEndTime - startTime,
+                duration: toolEndTime - toolStartTime,
+              });
+
+              return result;
+            } catch (error) {
+              const toolEndTime = Date.now();
+              toolTimings.set(toolCallId, {
+                name: toolName,
+                startTime: toolStartTime - startTime,
+                endTime: toolEndTime - startTime,
+                duration: toolEndTime - toolStartTime,
+              });
+              throw error;
+            }
           };
+
+          wrappedTools[toolName] = wrappedTool;
         } else {
           wrappedTools[toolName] = tool;
         }
@@ -109,10 +132,15 @@ export function createGenerateTextWrapper(
         params?.model?.modelId ||
         String(params?.model || "unknown");
 
+      // Extract provider info for debugging (what SDK/provider the user is using)
+      const providerInfo = extractProviderInfo(params?.model, aiModule, result);
+
       // SDK is dumb - just send ALL raw data, microservice does all parsing
       const attributes: Record<string, unknown> = {
         "fallom.sdk_version": "2",
         "fallom.method": "generateText",
+        // Provider info for debugging
+        ...providerInfoToAttributes(providerInfo),
       };
 
       if (captureContent) {
@@ -134,16 +162,26 @@ export function createGenerateTextWrapper(
           let args = tc?.args ?? tc?.input;
           // If args is still undefined, try to access all enumerable properties
           if (args === undefined && tc) {
-            const { type, toolCallId, toolName, providerExecuted, dynamic, invalid, error, providerMetadata, ...rest } = tc;
+            const {
+              type,
+              toolCallId,
+              toolName,
+              providerExecuted,
+              dynamic,
+              invalid,
+              error,
+              providerMetadata,
+              ...rest
+            } = tc;
             if (Object.keys(rest).length > 0) {
               args = rest;
             }
           }
           return {
-          toolCallId: tc?.toolCallId,
-          toolName: tc?.toolName,
+            toolCallId: tc?.toolCallId,
+            toolName: tc?.toolName,
             args,
-          type: tc?.type,
+            type: tc?.type,
           };
         };
 
@@ -158,10 +196,10 @@ export function createGenerateTextWrapper(
             }
           }
           return {
-          toolCallId: tr?.toolCallId,
-          toolName: tr?.toolName,
+            toolCallId: tr?.toolCallId,
+            toolName: tr?.toolName,
             result,
-          type: tr?.type,
+            type: tr?.type,
           };
         };
 
